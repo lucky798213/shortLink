@@ -1,0 +1,5 @@
+/shortlink-web-loadtest cpuset=0-1 memory=402653184 swap=402653184
+/shortlink-rpc-1 cpuset=0-1 memory=402653184 swap=402653184
+/shortlink-mysql-1 cpuset=0-1 memory=1073741824 swap=1073741824
+/shortlink-redis-1 cpuset=0-1 memory=134217728 swap=134217728
+/shortlink-etcd-1 cpuset=0-1 memory=134217728 swap=134217728

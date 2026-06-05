@@ -1,0 +1,103 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: short_url
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./scripts/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+    ports:
+      - "2379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rpc:
+    build:
+      context: .
+      dockerfile: Dockerfile.rpc
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_healthy
+    environment:
+      DB_DSN: "root:root@tcp(mysql:3306)/short_url?charset=utf8mb4&parseTime=True&loc=Local"
+      REDIS_ADDR: "redis:6379"
+      ETCD_ENABLED: "true"
+      ETCD_ENDPOINTS: "etcd:2379"
+      SERVICE_NAME: "short-url-rpc"
+      SERVICE_ADDR: "rpc:50051"
+    ports:
+      - "15051:50051"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 50051"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    depends_on:
+      rpc:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_healthy
+    environment:
+      GRPC_ADDR: "rpc:50051"
+      SHORT_URL_BASE_URL: "http://localhost:8080"
+      REDIS_ADDR: "redis:6379"
+      ETCD_ENABLED: "true"
+      ETCD_ENDPOINTS: "etcd:2379"
+      SERVICE_NAME: "short-url-rpc"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8888:80"

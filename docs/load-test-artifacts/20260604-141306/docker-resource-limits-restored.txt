@@ -1,0 +1,4 @@
+/shortlink-rpc-1 cpuset=0-9 memory=7516192768 swap=7516192768
+/shortlink-mysql-1 cpuset=0-9 memory=7516192768 swap=7516192768
+/shortlink-redis-1 cpuset=0-9 memory=7516192768 swap=7516192768
+/shortlink-etcd-1 cpuset=0-9 memory=7516192768 swap=7516192768

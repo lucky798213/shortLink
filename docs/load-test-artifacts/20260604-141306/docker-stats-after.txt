@@ -1,0 +1,6 @@
+CONTAINER ID   NAME                     CPU %     MEM USAGE / LIMIT   MEM %     NET I/O           BLOCK I/O         PIDS
+96ddecfbee7b   shortlink-web-loadtest   0.02%     76.53MiB / 384MiB   19.93%    342MB / 593MB     0B / 0B           9
+2a54b23105c7   shortlink-rpc-1          1.47%     52.31MiB / 384MiB   13.62%    263MB / 574MB     19.2MB / 0B       16
+e093697e7951   shortlink-redis-1        0.70%     52.54MiB / 128MiB   41.05%    522MB / 86.5MB    19.5MB / 28.7MB   6
+9431f4bd7ae9   shortlink-mysql-1        0.67%     558.2MiB / 1GiB     54.51%    130MB / 140MB     711MB / 1.68GB    40
+8ecea9e3beff   shortlink-etcd-1         0.54%     71.19MiB / 128MiB   55.62%    48.7kB / 35.4kB   39.1MB / 348kB    11

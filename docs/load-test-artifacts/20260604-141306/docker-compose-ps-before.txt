@@ -1,0 +1,7 @@
+NAME                IMAGE                         COMMAND                  SERVICE   CREATED              STATUS                        PORTS
+shortlink-etcd-1    quay.io/coreos/etcd:v3.5.18   "/usr/local/bin/etcd…"   etcd      4 days ago           Up About a minute (healthy)   0.0.0.0:2379->2379/tcp, [::]:2379->2379/tcp
+shortlink-mysql-1   mysql:8.0                     "docker-entrypoint.s…"   mysql     4 days ago           Up About a minute (healthy)   0.0.0.0:3306->3306/tcp, [::]:3306->3306/tcp
+shortlink-nginx-1   nginx:1.27-alpine             "/docker-entrypoint.…"   nginx     4 days ago           Up 52 seconds                 0.0.0.0:8888->80/tcp, [::]:8888->80/tcp
+shortlink-redis-1   redis:7-alpine                "docker-entrypoint.s…"   redis     4 days ago           Up About a minute (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp
+shortlink-rpc-1     shortlink-rpc                 "rpc-server"             rpc       About a minute ago   Up About a minute (healthy)   0.0.0.0:15051->50051/tcp, [::]:15051->50051/tcp
+shortlink-web-1     shortlink-web                 "web-server"             web       About a minute ago   Up 58 seconds (healthy)       0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
