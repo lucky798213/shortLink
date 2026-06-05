@@ -1,0 +1,23 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Local configuration
+rpc/config/config.yaml
+web/config/config.yaml
+
+# Build outputs
+bin/
+dist/
+*.out
+*.test
+coverage.out
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Environment files
+.env
+.env.*
