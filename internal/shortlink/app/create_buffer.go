@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"short_url/internal/shortlink"
-	"short_url/pkg/generator"
+	"short_url/internal/shortlink/code"
 )
 
 var ErrCreateBufferClosed = errors.New("create buffer is closed")
@@ -175,11 +175,11 @@ func (b *CreateBuffer) flush(requests []createBufferRequest) {
 			request.resultCh <- createBufferResult{err: fmt.Errorf("allocate short url id: %w", err)}
 			continue
 		}
-		if id == 0 || id > generator.MaxID {
+		if id == 0 || id > code.MaxID {
 			request.resultCh <- createBufferResult{err: fmt.Errorf("allocate short url id: invalid id %d", id)}
 			continue
 		}
-		shortCode := generator.Encode(id)
+		shortCode := code.Encode(id)
 		rows = append(rows, shortlink.CreateInput{
 			ID:        id,
 			ShortCode: shortCode,

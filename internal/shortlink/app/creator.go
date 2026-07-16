@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"short_url/internal/shortlink"
-	"short_url/pkg/generator"
+	"short_url/internal/shortlink/code"
 )
 
 var ErrIDAllocatorUnavailable = errors.New("short link id allocator is unavailable")
@@ -67,10 +67,10 @@ func (c *Creator) Create(ctx context.Context, originURL string, expireAtUnix int
 	if err != nil {
 		return "", fmt.Errorf("allocate short url id: %w", err)
 	}
-	if id == 0 || id > generator.MaxID {
+	if id == 0 || id > code.MaxID {
 		return "", fmt.Errorf("allocate short url id: invalid id %d", id)
 	}
-	shortCode := generator.Encode(id)
+	shortCode := code.Encode(id)
 	if err := c.store.BatchCreate(ctx, []shortlink.CreateInput{{
 		ID:        id,
 		ShortCode: shortCode,

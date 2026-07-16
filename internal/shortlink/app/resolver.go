@@ -11,7 +11,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"short_url/internal/shortlink"
-	"short_url/pkg/generator"
+	"short_url/internal/shortlink/code"
 )
 
 type Resolver struct {
@@ -64,7 +64,7 @@ func newResolver(store LinkStore, remoteCache Cache, localCache Cache, bloom Blo
 }
 
 func (r *Resolver) Resolve(ctx context.Context, shortCode string) (*LinkResult, error) {
-	if !generator.IsValid(shortCode) {
+	if !code.IsValid(shortCode) {
 		return &LinkResult{Status: shortlink.StatusNotFound}, nil
 	}
 	if cached, ok := r.getCache(ctx, r.localCache, shortCode, false); ok {
