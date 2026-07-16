@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestShortUrlServiceShutdownFlushesVisitBatch(t *testing.T) {
 		VisitBatchSize:     100,
 		VisitFlushInterval: time.Hour,
 	})
-	svc.enqueueVisit("000001", &VisitInfo{ClientIP: "192.0.2.1"})
+	svc.visitWriter.Enqueue("000001", &VisitInfo{ClientIP: "192.0.2.1"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

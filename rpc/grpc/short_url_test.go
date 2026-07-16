@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	proto "short_url/api/shortlink/v1"
-	"short_url/rpc/service"
+	shortlinkapp "short_url/internal/shortlink/app"
 
 	gogrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,7 +17,7 @@ import (
 )
 
 func TestShortUrlServerMapsValidationError(t *testing.T) {
-	server := NewShortUrlServer(service.NewShortUrlService(nil))
+	server := NewShortUrlServer(shortlinkapp.NewService(nil, shortlinkapp.Options{}))
 
 	_, err := server.CreateShortUrl(context.Background(), &proto.CreateShortUrlRequest{
 		OriginUrl: "ftp://example.com",
@@ -36,7 +36,7 @@ func TestGeneratedGRPCServerInvokesUnaryInterceptor(t *testing.T) {
 			return handler(ctx, req)
 		},
 	))
-	proto.RegisterShortLinkServiceServer(grpcServer, NewShortUrlServer(service.NewShortUrlService(nil)))
+	proto.RegisterShortLinkServiceServer(grpcServer, NewShortUrlServer(shortlinkapp.NewService(nil, shortlinkapp.Options{})))
 	go func() { _ = grpcServer.Serve(listener) }()
 	t.Cleanup(func() {
 		grpcServer.Stop()

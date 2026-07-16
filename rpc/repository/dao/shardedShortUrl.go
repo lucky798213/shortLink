@@ -8,70 +8,21 @@ import (
 	"gorm.io/gorm"
 
 	"short_url/internal/shortlink"
+	"short_url/internal/shortlink/app"
 	"short_url/pkg/generator"
 	"short_url/pkg/sharding"
-	"short_url/rpc/repository"
 )
 
 type shardedShortUrlRepo struct {
-	db        *gorm.DB
-	strategy  sharding.Strategy
-	allocator IDAllocator
+	db       *gorm.DB
+	strategy sharding.Strategy
 }
 
-func NewShardedShortUrlRepo(db *gorm.DB, shardCount int, allocator IDAllocator) repository.ShortUrlRepo {
+func NewShardedShortUrlRepo(db *gorm.DB, shardCount int) app.BatchLinkStore {
 	return &shardedShortUrlRepo{
-		db:        db,
-		strategy:  sharding.NewStrategy(shardCount),
-		allocator: allocator,
+		db:       db,
+		strategy: sharding.NewStrategy(shardCount),
 	}
-}
-
-func (r *shardedShortUrlRepo) InTx(ctx context.Context, fn func(txRepo repository.ShortUrlRepo) error) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(&shardedShortUrlRepo{db: tx, strategy: r.strategy, allocator: r.allocator})
-	})
-	if err != nil {
-		return fmt.Errorf("sharded short_url transaction: %w", err)
-	}
-	return nil
-}
-
-func (r *shardedShortUrlRepo) Create(ctx context.Context, originURL string, expireAt *time.Time) (uint64, error) {
-	if r.allocator == nil {
-		return 0, fmt.Errorf("id allocator is required for sharded create")
-	}
-	id, err := r.allocator.NextID(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("allocate short url id: %w", err)
-	}
-	now := time.Now()
-	shortCode := generator.Encode(id)
-	row := map[string]any{
-		"id":         id,
-		"short_code": shortCode,
-		"origin_url": originURL,
-		"created_at": now,
-		"expire_at":  expireAt,
-	}
-	if err := r.db.WithContext(ctx).Table(r.strategy.TableByID(id)).Create(row).Error; err != nil {
-		return 0, fmt.Errorf("insert sharded short_url: %w", err)
-	}
-	return id, nil
-}
-
-func (r *shardedShortUrlRepo) UpdateShortCode(ctx context.Context, id uint64, shortCode string) error {
-	if _, err := generator.Decode(shortCode); err != nil {
-		return fmt.Errorf("invalid short_code %q: %w", shortCode, err)
-	}
-	err := r.db.WithContext(ctx).
-		Table(r.strategy.TableByID(id)).
-		Where("id = ?", id).
-		Update("short_code", shortCode).Error
-	if err != nil {
-		return fmt.Errorf("update sharded short_code id=%d: %w", id, err)
-	}
-	return nil
 }
 
 func (r *shardedShortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*shortlink.Link, error) {
@@ -231,6 +182,5 @@ func (r *shardedShortUrlRepo) SoftDeleteExpired(ctx context.Context, now time.Ti
 	return deletedCodes, nil
 }
 
-var _ repository.ShortUrlRepo = (*shardedShortUrlRepo)(nil)
-var _ repository.ShortUrlBatchRepo = (*shardedShortUrlRepo)(nil)
-var _ repository.ShortUrlMaintenanceRepo = (*shardedShortUrlRepo)(nil)
+var _ app.BatchLinkStore = (*shardedShortUrlRepo)(nil)
+var _ app.MaintenanceStore = (*shardedShortUrlRepo)(nil)

@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"short_url/internal/shortlink/app"
 )
 
-func TestShortUrlEntryToRow(t *testing.T) {
-	entry := ShortUrlEntry{
+func TestCacheEntryToLink(t *testing.T) {
+	entry := app.CacheEntry{
 		ShortCode: "000001",
 		OriginURL: "https://example.com",
 		CreatedAt: 100,
@@ -19,18 +21,18 @@ func TestShortUrlEntryToRow(t *testing.T) {
 		Status:    "active",
 	}
 
-	row := entry.ToRow()
-	if row == nil {
-		t.Fatal("ToRow() = nil, want row")
+	link := entry.ToLink()
+	if link == nil {
+		t.Fatal("ToLink() = nil, want link")
 	}
-	if row.ShortCode != "000001" || row.OriginURL != "https://example.com" {
-		t.Fatalf("row = %#v, want short_code and origin_url", row)
+	if link.ShortCode != "000001" || link.OriginURL != "https://example.com" {
+		t.Fatalf("link = %#v, want short_code and origin_url", link)
 	}
-	if row.CreatedAt.Unix() != 100 {
-		t.Fatalf("CreatedAt = %d, want 100", row.CreatedAt.Unix())
+	if link.CreatedAt.Unix() != 100 {
+		t.Fatalf("CreatedAt = %d, want 100", link.CreatedAt.Unix())
 	}
-	if row.ExpireAt == nil || row.ExpireAt.Unix() != 200 {
-		t.Fatalf("ExpireAt = %v, want 200", row.ExpireAt)
+	if link.ExpireAt == nil || link.ExpireAt.Unix() != 200 {
+		t.Fatalf("ExpireAt = %v, want 200", link.ExpireAt)
 	}
 }
 
@@ -39,7 +41,7 @@ func TestLocalShortUrlCache(t *testing.T) {
 	now := time.Unix(100, 0)
 	local.now = func() time.Time { return now }
 
-	entry := ShortUrlEntry{
+	entry := app.CacheEntry{
 		ShortCode: "000001",
 		OriginURL: "https://example.com",
 		Status:    "active",
@@ -65,7 +67,7 @@ func TestLocalShortUrlCache(t *testing.T) {
 
 func TestLocalShortUrlCacheDelete(t *testing.T) {
 	local := NewLocalShortUrlCache(2)
-	entry := ShortUrlEntry{ShortCode: "000001", Status: "not_found"}
+	entry := app.CacheEntry{ShortCode: "000001", Status: "not_found"}
 	if err := local.Set(context.Background(), entry, time.Minute); err != nil {
 		t.Fatalf("Set() error: %v", err)
 	}
@@ -91,7 +93,7 @@ func TestRedisShortUrlCacheIntegration(t *testing.T) {
 	}
 
 	cache := NewRedisShortUrlCache(client)
-	entry := ShortUrlEntry{
+	entry := app.CacheEntry{
 		ShortCode: "redis-test",
 		OriginURL: "https://example.com/redis",
 		CreatedAt: time.Now().Unix(),

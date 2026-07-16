@@ -10,54 +10,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"short_url/internal/shortlink"
+	"short_url/internal/shortlink/app"
 )
 
-var ErrMiss = errors.New("short url cache miss")
-
-type ShortUrlCache interface {
-	Get(ctx context.Context, shortCode string) (*ShortUrlEntry, error)
-	Set(ctx context.Context, entry ShortUrlEntry, ttl time.Duration) error
-	Delete(ctx context.Context, shortCode string) error
-}
-
-type ShortUrlEntry struct {
-	ShortCode string           `json:"short_code"`
-	OriginURL string           `json:"origin_url"`
-	CreatedAt int64            `json:"created_at"`
-	ExpireAt  int64            `json:"expire_at"`
-	Status    shortlink.Status `json:"status"`
-}
-
-func NewShortUrlEntry(row *shortlink.Link, status shortlink.Status) ShortUrlEntry {
-	entry := ShortUrlEntry{
-		ShortCode: row.ShortCode,
-		OriginURL: row.OriginURL,
-		CreatedAt: row.CreatedAt.Unix(),
-		Status:    status,
-	}
-	if row.ExpireAt != nil {
-		entry.ExpireAt = row.ExpireAt.Unix()
-	}
-	return entry
-}
-
-func (e ShortUrlEntry) ToRow() *shortlink.Link {
-	if e.ShortCode == "" && e.OriginURL == "" {
-		return nil
-	}
-
-	row := &shortlink.Link{
-		ShortCode: e.ShortCode,
-		OriginURL: e.OriginURL,
-		CreatedAt: time.Unix(e.CreatedAt, 0),
-	}
-	if e.ExpireAt != 0 {
-		expireAt := time.Unix(e.ExpireAt, 0)
-		row.ExpireAt = &expireAt
-	}
-	return row
-}
+var ErrMiss = app.ErrCacheMiss
 
 func Key(shortCode string) string {
 	return "short_url:code:" + shortCode
@@ -71,7 +27,7 @@ func NewRedisShortUrlCache(client redis.Cmdable) *RedisShortUrlCache {
 	return &RedisShortUrlCache{client: client}
 }
 
-func (c *RedisShortUrlCache) Get(ctx context.Context, shortCode string) (*ShortUrlEntry, error) {
+func (c *RedisShortUrlCache) Get(ctx context.Context, shortCode string) (*app.CacheEntry, error) {
 	payload, err := c.client.Get(ctx, Key(shortCode)).Result()
 	if errors.Is(err, redis.Nil) {
 		return nil, ErrMiss
@@ -80,14 +36,14 @@ func (c *RedisShortUrlCache) Get(ctx context.Context, shortCode string) (*ShortU
 		return nil, fmt.Errorf("redis get short url: %w", err)
 	}
 
-	var entry ShortUrlEntry
+	var entry app.CacheEntry
 	if err := json.Unmarshal([]byte(payload), &entry); err != nil {
 		return nil, fmt.Errorf("unmarshal short url cache: %w", err)
 	}
 	return &entry, nil
 }
 
-func (c *RedisShortUrlCache) Set(ctx context.Context, entry ShortUrlEntry, ttl time.Duration) error {
+func (c *RedisShortUrlCache) Set(ctx context.Context, entry app.CacheEntry, ttl time.Duration) error {
 	payload, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal short url cache: %w", err)
@@ -111,11 +67,11 @@ func NewNoopShortUrlCache() NoopShortUrlCache {
 	return NoopShortUrlCache{}
 }
 
-func (NoopShortUrlCache) Get(context.Context, string) (*ShortUrlEntry, error) {
+func (NoopShortUrlCache) Get(context.Context, string) (*app.CacheEntry, error) {
 	return nil, ErrMiss
 }
 
-func (NoopShortUrlCache) Set(context.Context, ShortUrlEntry, time.Duration) error {
+func (NoopShortUrlCache) Set(context.Context, app.CacheEntry, time.Duration) error {
 	return nil
 }
 
@@ -124,7 +80,7 @@ func (NoopShortUrlCache) Delete(context.Context, string) error {
 }
 
 type localEntry struct {
-	value     ShortUrlEntry
+	value     app.CacheEntry
 	expiresAt time.Time
 }
 
@@ -146,7 +102,7 @@ func NewLocalShortUrlCache(maxEntries int) *LocalShortUrlCache {
 	}
 }
 
-func (c *LocalShortUrlCache) Get(ctx context.Context, shortCode string) (*ShortUrlEntry, error) {
+func (c *LocalShortUrlCache) Get(ctx context.Context, shortCode string) (*app.CacheEntry, error) {
 	_ = ctx
 	key := Key(shortCode)
 	now := c.nowTime()
@@ -168,7 +124,7 @@ func (c *LocalShortUrlCache) Get(ctx context.Context, shortCode string) (*ShortU
 	return &entry, nil
 }
 
-func (c *LocalShortUrlCache) Set(ctx context.Context, entry ShortUrlEntry, ttl time.Duration) error {
+func (c *LocalShortUrlCache) Set(ctx context.Context, entry app.CacheEntry, ttl time.Duration) error {
 	_ = ctx
 	if ttl <= 0 {
 		return nil

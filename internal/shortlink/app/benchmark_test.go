@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -6,21 +6,17 @@ import (
 	"time"
 
 	"short_url/internal/shortlink"
-	cachepkg "short_url/rpc/repository/cache"
 )
 
 func BenchmarkGetOriginUrlLocalCacheHit(b *testing.B) {
-	local := cachepkg.NewLocalShortUrlCache(1000)
-	entry := cachepkg.NewShortUrlEntry(&shortlink.Link{
+	entry := NewCacheEntry(&shortlink.Link{
 		ShortCode: "000001",
 		OriginURL: "https://example.com",
 		CreatedAt: time.Unix(100, 0),
 	}, StatusActive)
-	if err := local.Set(context.Background(), entry, time.Hour); err != nil {
-		b.Fatalf("set local cache: %v", err)
-	}
+	local := &mockShortUrlCache{getEntry: &entry}
 	svc := NewShortUrlServiceWithOptions(&mockShortUrlRepo{}, ShortUrlServiceOptions{
-		RemoteCache: cachepkg.NewNoopShortUrlCache(),
+		RemoteCache: noopCache{},
 		LocalCache:  local,
 	})
 
@@ -31,7 +27,7 @@ func BenchmarkGetOriginUrlLocalCacheHit(b *testing.B) {
 		if err != nil {
 			b.Fatalf("GetOriginUrl() error: %v", err)
 		}
-		if got.Status != StatusActive || got.Row == nil {
+		if got.Status != StatusActive || got.Link == nil {
 			b.Fatalf("unexpected result: %#v", got)
 		}
 	}

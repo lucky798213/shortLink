@@ -9,16 +9,19 @@ import (
 	"gorm.io/gorm"
 
 	"short_url/internal/shortlink"
-	"short_url/rpc/repository"
+	"short_url/internal/shortlink/app"
 )
 
 type shortUrlVisitRepo struct {
 	db *gorm.DB
 }
 
-func NewShortUrlVisitRepo(db *gorm.DB) repository.ShortUrlVisitRepo {
+func NewShortUrlVisitRepo(db *gorm.DB) app.VisitStore {
 	return &shortUrlVisitRepo{db: db}
 }
+
+var _ app.VisitStore = (*shortUrlVisitRepo)(nil)
+var _ app.BatchVisitStore = (*shortUrlVisitRepo)(nil)
 
 func (r *shortUrlVisitRepo) CreateVisit(ctx context.Context, visit shortlink.Visit) error {
 	if visit.CreatedAt.IsZero() {

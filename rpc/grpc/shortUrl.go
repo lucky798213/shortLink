@@ -5,7 +5,7 @@ import (
 
 	proto "short_url/api/shortlink/v1"
 	"short_url/internal/shortlink"
-	"short_url/rpc/service"
+	shortlinkapp "short_url/internal/shortlink/app"
 )
 
 // ShortUrlServer 是 gRPC ShortUrl 服务的具体实现。
@@ -15,11 +15,11 @@ import (
 // 这样现有代码无需修改就能编译通过，实现了"前向兼容"。
 type ShortUrlServer struct {
 	proto.UnimplementedShortLinkServiceServer
-	svc *service.ShortUrlService
+	svc *shortlinkapp.Service
 }
 
 // NewShortUrlServer 创建 gRPC 服务端实例。
-func NewShortUrlServer(svc *service.ShortUrlService) *ShortUrlServer {
+func NewShortUrlServer(svc *shortlinkapp.Service) *ShortUrlServer {
 	return &ShortUrlServer{svc: svc}
 }
 
@@ -46,7 +46,7 @@ func (s *ShortUrlServer) CreateShortUrl(ctx context.Context, req *proto.CreateSh
 // 当 row 为 nil（短码不存在）时，返回空响应而非 error。
 // 这样 Web 层可以根据 OriginUrl 是否为空来判断 404，而不是解析 error 字符串。
 func (s *ShortUrlServer) GetOriginUrl(ctx context.Context, req *proto.GetOriginUrlRequest) (*proto.GetOriginUrlResponse, error) {
-	result, err := s.svc.GetOriginUrl(ctx, req.ShortCode, &service.VisitInfo{
+	result, err := s.svc.GetOriginUrl(ctx, req.ShortCode, &shortlink.VisitInfo{
 		ClientIP:  req.ClientIp,
 		UserAgent: req.UserAgent,
 		Referer:   req.Referer,
@@ -54,20 +54,20 @@ func (s *ShortUrlServer) GetOriginUrl(ctx context.Context, req *proto.GetOriginU
 	if err != nil {
 		return nil, toGRPCError(err)
 	}
-	if result == nil || result.Row == nil {
+	if result == nil || result.Link == nil {
 		// 短码不存在，返回空响应（非 error），
 		// 让调用方根据 OriginUrl=="" 判断为 404
-		return &proto.GetOriginUrlResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
+		return &proto.GetOriginUrlResponse{Status: toProtoStatus(shortlink.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetOriginUrlResponse{
-		OriginUrl: result.Row.OriginURL,
-		CreatedAt: result.Row.CreatedAt.Unix(), // time.Time → Unix 时间戳（秒）
+		OriginUrl: result.Link.OriginURL,
+		CreatedAt: result.Link.CreatedAt.Unix(), // time.Time → Unix 时间戳（秒）
 		Status:    toProtoStatus(result.Status),
 	}
 	// ExpireAt 可能为 nil（未设置过期时间），需要判空
-	if result.Row.ExpireAt != nil {
-		resp.ExpireAt = result.Row.ExpireAt.Unix()
+	if result.Link.ExpireAt != nil {
+		resp.ExpireAt = result.Link.ExpireAt.Unix()
 	}
 	return resp, nil
 }
@@ -78,18 +78,18 @@ func (s *ShortUrlServer) GetShortUrl(ctx context.Context, req *proto.GetShortUrl
 	if err != nil {
 		return nil, toGRPCError(err)
 	}
-	if result == nil || result.Row == nil {
-		return &proto.GetShortUrlResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
+	if result == nil || result.Link == nil {
+		return &proto.GetShortUrlResponse{Status: toProtoStatus(shortlink.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlResponse{
-		ShortCode: result.Row.ShortCode,
-		OriginUrl: result.Row.OriginURL,
-		CreatedAt: result.Row.CreatedAt.Unix(),
+		ShortCode: result.Link.ShortCode,
+		OriginUrl: result.Link.OriginURL,
+		CreatedAt: result.Link.CreatedAt.Unix(),
 		Status:    toProtoStatus(result.Status),
 	}
-	if result.Row.ExpireAt != nil {
-		resp.ExpireAt = result.Row.ExpireAt.Unix()
+	if result.Link.ExpireAt != nil {
+		resp.ExpireAt = result.Link.ExpireAt.Unix()
 	}
 	return resp, nil
 }
@@ -109,8 +109,8 @@ func (s *ShortUrlServer) GetShortUrlStats(ctx context.Context, req *proto.GetSho
 	if err != nil {
 		return nil, toGRPCError(err)
 	}
-	if result == nil || result.Status == service.StatusNotFound || result.Stats == nil {
-		return &proto.GetShortUrlStatsResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
+	if result == nil || result.Status == shortlink.StatusNotFound || result.Stats == nil {
+		return &proto.GetShortUrlStatsResponse{Status: toProtoStatus(shortlink.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlStatsResponse{

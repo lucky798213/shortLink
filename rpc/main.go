@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	proto "short_url/api/shortlink/v1"
+	shortlinkapp "short_url/internal/shortlink/app"
 	bloompkg "short_url/pkg/bloom"
 	"short_url/pkg/discovery"
 	"short_url/pkg/logging"
@@ -26,7 +27,6 @@ import (
 	"short_url/rpc/job"
 	cachepkg "short_url/rpc/repository/cache"
 	"short_url/rpc/repository/dao"
-	"short_url/rpc/service"
 )
 
 func main() {
@@ -100,39 +100,43 @@ func main() {
 	allocator := dao.NewMySQLIDAllocator(db, viper.GetUint64("id_allocator.step"))
 
 	//创建分片存储的短链接数据库层
-	repo := dao.NewShardedShortUrlRepo(db, viper.GetInt("sharding.count"), allocator) // 分片数据访问层
+	repo := dao.NewShardedShortUrlRepo(db, viper.GetInt("sharding.count")) // 分片数据访问层
 
 	//创建访问日志存储层（统计点击量）
 	visitRepo := dao.NewShortUrlVisitRepo(db) // 访问日志数据访问层
 
 	//创建真正的业务服务（核心）
-	svc := service.NewShortUrlServiceWithOptions(repo, service.ShortUrlServiceOptions{
-		RemoteCache:          shortURLCache,
-		LocalCache:           cachepkg.NewLocalShortUrlCache(viper.GetInt("cache.local_max_entries")),
-		DefaultCacheTTL:      viper.GetDuration("cache.default_ttl"),
-		NotFoundCacheTTL:     viper.GetDuration("cache.not_found_ttl"),
-		LocalCacheTTL:        viper.GetDuration("cache.local_ttl"),
-		CacheJitterRatio:     viper.GetFloat64("cache.jitter_ratio"),
-		VisitRepo:            visitRepo,
-		VisitQueueSize:       viper.GetInt("stats.queue_size"),
-		VisitWorkerCount:     viper.GetInt("stats.worker_count"),
-		VisitBatchSize:       viper.GetInt("stats.batch_size"),
-		VisitFlushInterval:   viper.GetDuration("stats.flush_interval"),
-		IPHashSalt:           viper.GetString("stats.ip_hash_salt"),
-		IDAllocator:          allocator,
-		CreateQueueSize:      viper.GetInt("write_buffer.queue_size"),
-		CreateBatchSize:      viper.GetInt("write_buffer.batch_size"),
-		CreateFlushInterval:  viper.GetDuration("write_buffer.flush_interval"),
-		CreateEnqueueTimeout: viper.GetDuration("write_buffer.enqueue_timeout"),
-		BloomFilter:          bloomFilter,
+	svc := shortlinkapp.NewService(repo, shortlinkapp.Options{
+		RemoteCache: shortURLCache,
+		LocalCache:  cachepkg.NewLocalShortUrlCache(viper.GetInt("cache.local_max_entries")),
+		Cache: shortlinkapp.CacheOptions{
+			DefaultTTL:  viper.GetDuration("cache.default_ttl"),
+			NotFoundTTL: viper.GetDuration("cache.not_found_ttl"),
+			LocalTTL:    viper.GetDuration("cache.local_ttl"),
+			JitterRatio: viper.GetFloat64("cache.jitter_ratio"),
+		},
+		IDAllocator: allocator,
+		Create: shortlinkapp.CreateOptions{
+			Buffered:       true,
+			QueueSize:      viper.GetInt("write_buffer.queue_size"),
+			BatchSize:      viper.GetInt("write_buffer.batch_size"),
+			FlushInterval:  viper.GetDuration("write_buffer.flush_interval"),
+			EnqueueTimeout: viper.GetDuration("write_buffer.enqueue_timeout"),
+		},
+		BloomFilter: bloomFilter,
+		VisitStore:  visitRepo,
+		Visit: shortlinkapp.VisitOptions{
+			QueueSize:     viper.GetInt("stats.queue_size"),
+			WorkerCount:   viper.GetInt("stats.worker_count"),
+			BatchSize:     viper.GetInt("stats.batch_size"),
+			FlushInterval: viper.GetDuration("stats.flush_interval"),
+			IPHashSalt:    viper.GetString("stats.ip_hash_salt"),
+		},
 	}) // 业务逻辑层
 
 	//后台定时任务（自动清理 + 布隆过滤器重建）
 	//看看 repo 有没有这两个维护功能： 扫描所有在用的短链接 软删除过期的短链接（通过断言实现）
-	if maintenanceRepo, ok := repo.(interface {
-		ScanActiveShortCodes(context.Context, int, func([]string) error) error
-		SoftDeleteExpired(context.Context, time.Time, int) ([]string, error)
-	}); ok {
+	if maintenanceRepo, ok := repo.(shortlinkapp.MaintenanceStore); ok {
 		// 启动第一个后台任务：过期清理器
 		job.StartExpiredCleaner(ctx, maintenanceRepo, shortURLCache, job.ExpiredCleanerOptions{
 			Interval:  viper.GetDuration("cleanup.interval"),
@@ -295,7 +299,7 @@ func init() {
 	_ = viper.BindEnv("logger.development", "LOGGER_DEVELOPMENT")
 }
 
-func initShortURLCache() (cachepkg.ShortUrlCache, *redis.Client) {
+func initShortURLCache() (shortlinkapp.Cache, *redis.Client) {
 	client := redis.NewClient(&redis.Options{
 		Addr:         viper.GetString("redis.addr"),
 		Password:     viper.GetString("redis.password"),

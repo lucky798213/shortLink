@@ -5,9 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"short_url/internal/shortlink/app"
 	bloompkg "short_url/pkg/bloom"
-	"short_url/rpc/repository"
-	cachepkg "short_url/rpc/repository/cache"
 )
 
 type ExpiredCleanerOptions struct {
@@ -16,7 +15,7 @@ type ExpiredCleanerOptions struct {
 	Now       func() time.Time
 }
 
-func StartExpiredCleaner(ctx context.Context, repo repository.ShortUrlMaintenanceRepo, cache cachepkg.ShortUrlCache, opts ExpiredCleanerOptions) {
+func StartExpiredCleaner(ctx context.Context, repo app.MaintenanceStore, cache app.Cache, opts ExpiredCleanerOptions) {
 	if repo == nil {
 		return
 	}
@@ -61,7 +60,7 @@ type BloomRebuilderOptions struct {
 	BatchSize int
 }
 
-func StartBloomRebuilder(ctx context.Context, repo repository.ShortUrlMaintenanceRepo, filter bloompkg.Filter, opts BloomRebuilderOptions) {
+func StartBloomRebuilder(ctx context.Context, repo app.MaintenanceStore, filter bloompkg.Filter, opts BloomRebuilderOptions) {
 	if repo == nil || filter == nil {
 		return
 	}

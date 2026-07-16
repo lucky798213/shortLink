@@ -13,10 +13,6 @@ import (
 
 const defaultAllocName = "short_url"
 
-type IDAllocator interface {
-	NextID(ctx context.Context) (uint64, error)
-}
-
 type MySQLIDAllocator struct {
 	db       *gorm.DB
 	name     string
