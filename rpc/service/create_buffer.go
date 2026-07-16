@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"short_url/pkg/generator"
@@ -12,6 +14,8 @@ import (
 type IDAllocator interface {
 	NextID(ctx context.Context) (uint64, error)
 }
+
+var ErrCreateBufferClosed = errors.New("create buffer is closed")
 
 type CreateBufferOptions struct {
 	QueueSize      int
@@ -29,6 +33,11 @@ type CreateBuffer struct {
 	flushInterval  time.Duration
 	enqueueTimeout time.Duration
 	now            func() time.Time
+
+	stateMu sync.RWMutex
+	closed  bool
+	stopCh  chan struct{}
+	doneCh  chan struct{}
 }
 
 type createBufferRequest struct {
@@ -66,6 +75,8 @@ func NewCreateBuffer(repo repository.ShortUrlBatchRepo, allocator IDAllocator, o
 		flushInterval:  opts.FlushInterval,
 		enqueueTimeout: opts.EnqueueTimeout,
 		now:            opts.Now,
+		stopCh:         make(chan struct{}),
+		doneCh:         make(chan struct{}),
 	}
 	go b.run()
 	return b
@@ -84,13 +95,22 @@ func (b *CreateBuffer) Create(ctx context.Context, originURL string, expireAt *t
 
 	enqueueCtx, cancel := context.WithTimeout(ctx, b.enqueueTimeout)
 	defer cancel()
+
+	// 在请求入队期间持有读锁，保证 Shutdown 标记关闭后不会再出现新的生产者。
+	b.stateMu.RLock()
+	if b.closed {
+		b.stateMu.RUnlock()
+		return "", ErrCreateBufferClosed
+	}
 	select {
 
 	//b.queue 是创建请求队列。
 	case b.queue <- req:
+		b.stateMu.RUnlock()
 
 	//如果队列满了，或者一直塞不进去，超过 b.enqueueTimeout：，直接返回错误：
 	case <-enqueueCtx.Done():
+		b.stateMu.RUnlock()
 		return "", fmt.Errorf("create buffer enqueue timeout: %w", enqueueCtx.Err())
 	}
 
@@ -103,10 +123,28 @@ func (b *CreateBuffer) Create(ctx context.Context, originURL string, expireAt *t
 	}
 }
 
+// Shutdown 停止接收新请求，刷出已经入队的批次，并等待后台协程退出。
+func (b *CreateBuffer) Shutdown(ctx context.Context) error {
+	b.stateMu.Lock()
+	if !b.closed {
+		b.closed = true
+		close(b.stopCh)
+	}
+	b.stateMu.Unlock()
+
+	select {
+	case <-b.doneCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (b *CreateBuffer) run() {
 	//创建了一个定时器
 	ticker := time.NewTicker(b.flushInterval)
 	defer ticker.Stop()
+	defer close(b.doneCh)
 
 	//创建一个批次容器。
 	//它用来临时保存从队列里取出来的创建请求。
@@ -126,6 +164,19 @@ func (b *CreateBuffer) run() {
 			if len(batch) > 0 {
 				b.flush(batch)
 				batch = make([]createBufferRequest, 0, b.batchSize)
+			}
+		case <-b.stopCh:
+			// Shutdown 已经阻止新的生产者，这里排空队列后即可安全退出。
+			for {
+				select {
+				case req := <-b.queue:
+					batch = append(batch, req)
+				default:
+					if len(batch) > 0 {
+						b.flush(batch)
+					}
+					return
+				}
 			}
 		}
 	}

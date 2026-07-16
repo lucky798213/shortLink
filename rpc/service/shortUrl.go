@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -96,6 +97,9 @@ type ShortUrlService struct {
 	localCacheTTL    time.Duration                              // 本地缓存 TTL，通常比远程缓存短，降低本地脏数据停留时间。
 	cacheJitterRatio float64                                    // 远程缓存 TTL 抖动比例，让大量 key 不在同一时间集中失效。
 	visitCh          chan repository.ShortUrlVisit              // 异步访问日志队列，跳转成功后先入队，再由后台 worker 落库。
+	visitStateMu     sync.RWMutex                               // 保护访问日志队列的关闭状态，避免发送方与关闭方竞争。
+	visitClosed      bool                                       // 表示访问日志队列已经停止接收新事件。
+	visitWG          sync.WaitGroup                             // 等待访问日志 worker 刷出剩余批次并退出。
 	ipHashSalt       string                                     // IP 哈希盐值，记录访问日志时对客户端 IP 做脱敏。
 	lookupGroup      singleflight.Group                         // 并发回源合并器，同一个短码只让一个请求查数据库。
 	createBuffer     *CreateBuffer                              // 创建短链的批量写缓冲；为 nil 时走普通事务写入。
@@ -543,6 +547,11 @@ func (s *ShortUrlService) enqueueVisit(shortCode string, info *VisitInfo) {
 		Referer:   truncate(info.Referer, 1024),
 		CreatedAt: s.nowTime(),
 	}
+	s.visitStateMu.RLock()
+	defer s.visitStateMu.RUnlock()
+	if s.visitClosed {
+		return
+	}
 	select {
 	case s.visitCh <- visit:
 	default:
@@ -555,8 +564,10 @@ func (s *ShortUrlService) startVisitWorkers(workerCount int, batchSize int, flus
 		s.startVisitBatchWorkers(workerCount, batchSize, flushInterval, batchRepo)
 		return
 	}
+	s.visitWG.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
 		go func() {
+			defer s.visitWG.Done()
 			for visit := range s.visitCh {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				if err := s.visitRepo.CreateVisit(ctx, visit); err != nil {
@@ -575,8 +586,10 @@ func (s *ShortUrlService) startVisitBatchWorkers(workerCount int, batchSize int,
 	if flushInterval <= 0 {
 		flushInterval = time.Second
 	}
+	s.visitWG.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
 		go func() {
+			defer s.visitWG.Done()
 			ticker := time.NewTicker(flushInterval)
 			defer ticker.Stop()
 
@@ -595,7 +608,11 @@ func (s *ShortUrlService) startVisitBatchWorkers(workerCount int, batchSize int,
 
 			for {
 				select {
-				case visit := <-s.visitCh:
+				case visit, ok := <-s.visitCh:
+					if !ok {
+						flush()
+						return
+					}
 					batch = append(batch, visit)
 					if len(batch) >= batchSize {
 						flush()
@@ -606,6 +623,35 @@ func (s *ShortUrlService) startVisitBatchWorkers(workerCount int, batchSize int,
 			}
 		}()
 	}
+}
+
+// Shutdown 停止异步写入组件，并在返回前尽量刷出已经接收的创建请求和访问日志。
+func (s *ShortUrlService) Shutdown(ctx context.Context) error {
+	var shutdownErrs []error
+	if s.createBuffer != nil {
+		if err := s.createBuffer.Shutdown(ctx); err != nil {
+			shutdownErrs = append(shutdownErrs, fmt.Errorf("shutdown create buffer: %w", err))
+		}
+	}
+
+	s.visitStateMu.Lock()
+	if s.visitCh != nil && !s.visitClosed {
+		s.visitClosed = true
+		close(s.visitCh)
+	}
+	s.visitStateMu.Unlock()
+
+	workersDone := make(chan struct{})
+	go func() {
+		s.visitWG.Wait()
+		close(workersDone)
+	}()
+	select {
+	case <-workersDone:
+	case <-ctx.Done():
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("shutdown visit workers: %w", ctx.Err()))
+	}
+	return errors.Join(shutdownErrs...)
 }
 
 func (s *ShortUrlService) hashIP(ip string) string {

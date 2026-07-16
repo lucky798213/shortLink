@@ -66,6 +66,12 @@ func main() {
 		slog.Error("数据库连接失败", "err", err)
 		os.Exit(1)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		slog.Error("获取数据库连接池失败", "err", err)
+		os.Exit(1)
+	}
+	defer sqlDB.Close()
 	slog.Info("数据库连接成功")
 
 	// —————— 第 3 步：初始化 Redis 缓存 ——————
@@ -184,12 +190,28 @@ func main() {
 	go func() {
 		<-ctx.Done()
 		healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-		s.GracefulStop()
+		gracefulDone := make(chan struct{})
+		go func() {
+			s.GracefulStop()
+			close(gracefulDone)
+		}()
+		select {
+		case <-gracefulDone:
+		case <-time.After(5 * time.Second):
+			slog.Warn("gRPC 优雅关闭超时，强制停止")
+			s.Stop()
+		}
 	}()
 
 	//正式阻塞运行 gRPC 服务。
-	if err := s.Serve(lis); err != nil && ctx.Err() == nil {
-		slog.Error("gRPC 服务异常退出", "err", err)
+	serveErr := s.Serve(lis)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := svc.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("业务后台任务关闭失败", "err", err)
+	}
+	shutdownCancel()
+	if serveErr != nil && ctx.Err() == nil {
+		slog.Error("gRPC 服务异常退出", "err", serveErr)
 		os.Exit(1)
 	}
 }

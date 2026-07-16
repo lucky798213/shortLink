@@ -27,6 +27,7 @@ const (
 // Handler 封装 HTTP 路由处理所需的依赖。
 // 将 gRPC 客户端作为 Handler 的成员变量，避免在每个路由处理函数中重复创建连接。
 type Handler struct {
+	conn         *grpc.ClientConn
 	rpcClient    proto.ShortUrlClient
 	healthClient grpc_health_v1.HealthClient
 	baseURL      string
@@ -52,10 +53,19 @@ func NewHandler(grpcAddr string, baseURL string) (*Handler, error) {
 		baseURL = "http://localhost:8080"
 	}
 	return &Handler{
+		conn:         conn,
 		rpcClient:    proto.NewShortUrlClient(conn),
 		healthClient: grpc_health_v1.NewHealthClient(conn),
 		baseURL:      baseURL,
 	}, nil
+}
+
+// Close 释放 Handler 持有的 gRPC 连接。
+func (h *Handler) Close() error {
+	if h == nil || h.conn == nil {
+		return nil
+	}
+	return h.conn.Close()
 }
 
 // CreateShortLink 处理 POST /api/short-links 请求。

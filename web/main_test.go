@@ -14,6 +14,7 @@ func TestRouteRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandler() error: %v", err)
 	}
+	t.Cleanup(func() { _ = handler.Close() })
 
 	r := gin.New()
 	r.POST("/api/short-links", handler.CreateShortLink)

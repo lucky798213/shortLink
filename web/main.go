@@ -104,6 +104,11 @@ func main() {
 		slog.Error("gRPC 客户端创建失败", "err", err)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := handler.Close(); err != nil {
+			slog.Warn("关闭 gRPC 客户端连接失败", "err", err)
+		}
+	}()
 
 	// —————— 第 3 步：注册路由并启动 HTTP 服务 ——————
 	// gin.Default() 会自动带上 Logger 和 Recovery 中间件：
@@ -113,7 +118,8 @@ func main() {
 	//创建两个限流器
 	//apiLimiter：限制 /api/... 管理接口。
 	//redirectLimiter：限制短链跳转接口。
-	apiLimiter, redirectLimiter := initRateLimiters()
+	apiLimiter, redirectLimiter, closeRateLimiters := initRateLimiters()
+	defer closeRateLimiters()
 	r := gin.New()
 
 	//如果某个 handler panic，不让整个进程崩掉，而是返回 500，给每个请求加一个 X-Request-ID，方便查日志
@@ -235,7 +241,7 @@ func configureHystrix() {
 
 // 返回API 限流器
 // 跳转限流器
-func initRateLimiters() (webpkg.TokenBucketLimiter, webpkg.TokenBucketLimiter) {
+func initRateLimiters() (webpkg.TokenBucketLimiter, webpkg.TokenBucketLimiter, func()) {
 	//先尝试连接 Redis：
 	client := redis.NewClient(&redis.Options{
 		Addr:         viper.GetString("redis.addr"),
@@ -254,10 +260,16 @@ func initRateLimiters() (webpkg.TokenBucketLimiter, webpkg.TokenBucketLimiter) {
 		slog.Warn("Redis 限流不可用，降级为内存令牌桶", "err", err)
 		_ = client.Close()
 		return webpkg.NewMemoryTokenBucketLimiter(viper.GetFloat64("rate_limit.api_rate"), viper.GetInt("rate_limit.api_burst")),
-			webpkg.NewMemoryTokenBucketLimiter(viper.GetFloat64("rate_limit.redirect_rate"), viper.GetInt("rate_limit.redirect_burst"))
+			webpkg.NewMemoryTokenBucketLimiter(viper.GetFloat64("rate_limit.redirect_rate"), viper.GetInt("rate_limit.redirect_burst")),
+			func() {}
 	}
 	return webpkg.NewRedisTokenBucketLimiter(client, "short_url:rate_limit:api:", viper.GetFloat64("rate_limit.api_rate"), viper.GetInt("rate_limit.api_burst")),
-		webpkg.NewRedisTokenBucketLimiter(client, "short_url:rate_limit:redirect:", viper.GetFloat64("rate_limit.redirect_rate"), viper.GetInt("rate_limit.redirect_burst"))
+		webpkg.NewRedisTokenBucketLimiter(client, "short_url:rate_limit:redirect:", viper.GetFloat64("rate_limit.redirect_rate"), viper.GetInt("rate_limit.redirect_burst")),
+		func() {
+			if err := client.Close(); err != nil {
+				slog.Warn("关闭 Redis 限流连接失败", "err", err)
+			}
+		}
 }
 
 // 逗号分隔的字符串切成数组。
