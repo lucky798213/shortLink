@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"short_url/internal/shortlink"
 	"short_url/rpc/repository"
 	cachepkg "short_url/rpc/repository/cache"
 )
@@ -34,7 +35,7 @@ type mockShortUrlRepo struct {
 	findShortCode   string
 	deleteShortCode string
 
-	findRow *repository.ShortUrl
+	findRow *shortlink.Link
 	deleted bool
 
 	findDelay time.Duration
@@ -65,7 +66,7 @@ func (m *mockShortUrlRepo) UpdateShortCode(ctx context.Context, id uint64, short
 	return m.updateErr
 }
 
-func (m *mockShortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*repository.ShortUrl, error) {
+func (m *mockShortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*shortlink.Link, error) {
 	m.mu.Lock()
 	m.findCalled = true
 	m.findCount++
@@ -144,23 +145,23 @@ func newShortUrlServiceWithRemoteCache(repo repository.ShortUrlRepo, remoteCache
 type mockVisitRepo struct {
 	createErr error
 	statsErr  error
-	stats     *repository.ShortUrlStats
+	stats     *shortlink.Stats
 
 	createCalled bool
 	statsCalled  bool
-	visit        repository.ShortUrlVisit
+	visit        shortlink.Visit
 	statsCode    string
 }
 
 var _ repository.ShortUrlVisitRepo = (*mockVisitRepo)(nil)
 
-func (m *mockVisitRepo) CreateVisit(ctx context.Context, visit repository.ShortUrlVisit) error {
+func (m *mockVisitRepo) CreateVisit(ctx context.Context, visit shortlink.Visit) error {
 	m.createCalled = true
 	m.visit = visit
 	return m.createErr
 }
 
-func (m *mockVisitRepo) GetStats(ctx context.Context, shortCode string, topN int) (*repository.ShortUrlStats, error) {
+func (m *mockVisitRepo) GetStats(ctx context.Context, shortCode string, topN int) (*shortlink.Stats, error) {
 	m.statsCalled = true
 	m.statsCode = shortCode
 	return m.stats, m.statsErr
@@ -185,11 +186,11 @@ func (m *mockIDAllocator) NextID(ctx context.Context) (uint64, error) {
 
 type mockBatchShortUrlRepo struct {
 	mockShortUrlRepo
-	batchRows []repository.ShortUrlCreateInput
+	batchRows []shortlink.CreateInput
 	batchErr  error
 }
 
-func (m *mockBatchShortUrlRepo) BatchCreate(ctx context.Context, rows []repository.ShortUrlCreateInput) error {
+func (m *mockBatchShortUrlRepo) BatchCreate(ctx context.Context, rows []shortlink.CreateInput) error {
 	m.batchRows = append(m.batchRows, rows...)
 	return m.batchErr
 }
@@ -283,6 +284,19 @@ func TestCreateShortUrlRejectsPastExpireAt(t *testing.T) {
 	}
 }
 
+func TestCreateShortUrlRejectsInvalidOriginURL(t *testing.T) {
+	repo := &mockShortUrlRepo{createID: 1}
+	svc := NewShortUrlService(repo)
+
+	_, err := svc.CreateShortUrl(context.Background(), "ftp://example.com", 0)
+	if !errors.Is(err, shortlink.ErrInvalidOriginURL) {
+		t.Fatalf("CreateShortUrl() error = %v, want ErrInvalidOriginURL", err)
+	}
+	if repo.createCalled {
+		t.Fatal("CreateShortUrl() should reject invalid URL before repository call")
+	}
+}
+
 func TestCreateShortUrlReturnsUpdateError(t *testing.T) {
 	repo := &mockShortUrlRepo{
 		createID:  1,
@@ -359,7 +373,7 @@ func TestCreateShortUrlBatchCreateError(t *testing.T) {
 func TestGetOriginUrlReturnsActiveStatus(t *testing.T) {
 	expireAt := time.Unix(200, 0)
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 			ExpireAt:  &expireAt,
@@ -383,7 +397,7 @@ func TestGetOriginUrlReturnsActiveStatus(t *testing.T) {
 func TestGetOriginUrlReturnsExpiredStatus(t *testing.T) {
 	expireAt := time.Unix(100, 0)
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 			ExpireAt:  &expireAt,
@@ -404,7 +418,7 @@ func TestGetOriginUrlReturnsExpiredStatus(t *testing.T) {
 func TestGetShortUrlReturnsExpiredStatus(t *testing.T) {
 	expireAt := time.Unix(99, 0)
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 			ExpireAt:  &expireAt,
@@ -504,7 +518,7 @@ func TestGetShortUrlCacheHitNotFoundSkipsRepo(t *testing.T) {
 
 func TestGetShortUrlCacheMissWritesRedis(t *testing.T) {
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 			CreatedAt: time.Unix(50, 0),
@@ -560,7 +574,7 @@ func TestGetShortUrlCacheMissWritesNotFound(t *testing.T) {
 
 func TestGetShortUrlCacheErrorFallsBackToRepo(t *testing.T) {
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 		},
@@ -630,7 +644,7 @@ func TestGetShortUrlBloomMissSkipsRepo(t *testing.T) {
 
 func TestGetShortUrlBloomErrorFallsBackToRepo(t *testing.T) {
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 		},
@@ -693,7 +707,7 @@ func TestCacheTTLUsesExpireAtForActiveShortUrl(t *testing.T) {
 	svc := newShortUrlServiceWithRemoteCache(&mockShortUrlRepo{}, &mockShortUrlCache{}, 24*time.Hour, time.Minute)
 	svc.now = func() time.Time { return time.Unix(100, 0) }
 
-	got := svc.cacheTTL(&repository.ShortUrl{ExpireAt: &expireAt}, StatusActive)
+	got := svc.cacheTTL(&shortlink.Link{ExpireAt: &expireAt}, StatusActive)
 	if got != 100*time.Second {
 		t.Fatalf("cacheTTL() = %s, want 100s", got)
 	}
@@ -733,7 +747,7 @@ func TestGetShortUrlLocalCacheHitSkipsRemoteAndRepo(t *testing.T) {
 func TestGetShortUrlSingleflightMergesRepoLookups(t *testing.T) {
 	repo := &mockShortUrlRepo{
 		findDelay: 50 * time.Millisecond,
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 			CreatedAt: time.Unix(50, 0),
@@ -788,12 +802,12 @@ func TestJitterTTLDoesNotApplyToExpireAt(t *testing.T) {
 		return ttl + time.Second
 	}
 
-	got := svc.cacheTTL(&repository.ShortUrl{ExpireAt: &expireAt}, StatusActive)
+	got := svc.cacheTTL(&shortlink.Link{ExpireAt: &expireAt}, StatusActive)
 	if got != 100*time.Second {
 		t.Fatalf("cacheTTL() = %s, want 100s without jitter", got)
 	}
 
-	got = svc.cacheTTL(&repository.ShortUrl{}, StatusActive)
+	got = svc.cacheTTL(&shortlink.Link{}, StatusActive)
 	if got != 24*time.Hour+time.Second {
 		t.Fatalf("cacheTTL() = %s, want default ttl with jitter", got)
 	}
@@ -801,7 +815,7 @@ func TestJitterTTLDoesNotApplyToExpireAt(t *testing.T) {
 
 func TestGetOriginUrlEnqueuesVisitOnlyForActive(t *testing.T) {
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 		},
@@ -841,7 +855,7 @@ func TestGetOriginUrlEnqueuesVisitOnlyForActive(t *testing.T) {
 
 func TestGetOriginUrlVisitQueueFullDoesNotBlock(t *testing.T) {
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 		},
@@ -853,7 +867,7 @@ func TestGetOriginUrlVisitQueueFullDoesNotBlock(t *testing.T) {
 		VisitQueueSize:   1,
 		VisitWorkerCount: 0,
 	})
-	svc.visitCh <- repository.ShortUrlVisit{ShortCode: "already-full"}
+	svc.visitCh <- shortlink.Visit{ShortCode: "already-full"}
 
 	_, err := svc.GetOriginUrl(context.Background(), "000001", &VisitInfo{ClientIP: "192.0.2.1"})
 	if err != nil {
@@ -864,19 +878,19 @@ func TestGetOriginUrlVisitQueueFullDoesNotBlock(t *testing.T) {
 func TestGetShortUrlStats(t *testing.T) {
 	lastVisitedAt := time.Unix(123, 0)
 	repo := &mockShortUrlRepo{
-		findRow: &repository.ShortUrl{
+		findRow: &shortlink.Link{
 			ShortCode: "000001",
 			OriginURL: "https://example.com",
 		},
 	}
 	visitRepo := &mockVisitRepo{
-		stats: &repository.ShortUrlStats{
+		stats: &shortlink.Stats{
 			ShortCode:     "000001",
 			PV:            10,
 			UV:            3,
 			LastVisitedAt: &lastVisitedAt,
-			TopReferers:   []repository.StatsItem{{Value: "referer", Count: 4}},
-			TopUserAgents: []repository.StatsItem{{Value: "agent", Count: 5}},
+			TopReferers:   []shortlink.StatsItem{{Value: "referer", Count: 4}},
+			TopUserAgents: []shortlink.StatsItem{{Value: "agent", Count: 5}},
 		},
 	}
 	svc := NewShortUrlServiceWithOptions(repo, ShortUrlServiceOptions{

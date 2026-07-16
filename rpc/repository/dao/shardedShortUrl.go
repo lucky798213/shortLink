@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"short_url/internal/shortlink"
 	"short_url/pkg/generator"
 	"short_url/pkg/sharding"
 	"short_url/rpc/repository"
@@ -73,13 +74,13 @@ func (r *shardedShortUrlRepo) UpdateShortCode(ctx context.Context, id uint64, sh
 	return nil
 }
 
-func (r *shardedShortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*repository.ShortUrl, error) {
+func (r *shardedShortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*shortlink.Link, error) {
 	table, id, err := r.strategy.TableByShortCode(shortCode)
 	if err != nil {
 		return nil, nil
 	}
 
-	var row repository.ShortUrl
+	var row shortlink.Link
 	err = r.db.WithContext(ctx).
 		Table(table).
 		Where("id = ? AND short_code = ? AND is_deleted = 0", id, shortCode).
@@ -108,14 +109,14 @@ func (r *shardedShortUrlRepo) DeleteByShortCode(ctx context.Context, shortCode s
 	return result.RowsAffected > 0, nil
 }
 
-func (r *shardedShortUrlRepo) BatchCreate(ctx context.Context, rows []repository.ShortUrlCreateInput) error {
+func (r *shardedShortUrlRepo) BatchCreate(ctx context.Context, rows []shortlink.CreateInput) error {
 	//没有要插入的数据，直接返回成功
 	if len(rows) == 0 {
 		return nil
 	}
 
 	//创建一个 map，用来按表名分组。
-	byTable := make(map[string][]repository.ShortUrlCreateInput)
+	byTable := make(map[string][]shortlink.CreateInput)
 
 	//遍历每一条待插入记录。
 	for _, row := range rows {

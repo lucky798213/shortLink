@@ -10,8 +10,8 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	"short_url/internal/shortlink"
 	"short_url/pkg/sharding"
-	"short_url/rpc/repository"
 )
 
 func TestShardedShortUrlRepoBatchCreateCommitsAllShards(t *testing.T) {
@@ -71,9 +71,9 @@ func newMockShardedShortURLRepo(t *testing.T) (*shardedShortUrlRepo, sqlmock.Sql
 	}, mock
 }
 
-func batchRowsForTwoShards() []repository.ShortUrlCreateInput {
+func batchRowsForTwoShards() []shortlink.CreateInput {
 	now := time.Unix(100, 0)
-	return []repository.ShortUrlCreateInput{
+	return []shortlink.CreateInput{
 		{ID: 1, ShortCode: "000001", OriginURL: "https://example.com/1", CreatedAt: now},
 		{ID: 2, ShortCode: "000002", OriginURL: "https://example.com/2", CreatedAt: now},
 	}

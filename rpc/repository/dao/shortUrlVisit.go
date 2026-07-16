@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"short_url/internal/shortlink"
 	"short_url/rpc/repository"
 )
 
@@ -19,7 +20,7 @@ func NewShortUrlVisitRepo(db *gorm.DB) repository.ShortUrlVisitRepo {
 	return &shortUrlVisitRepo{db: db}
 }
 
-func (r *shortUrlVisitRepo) CreateVisit(ctx context.Context, visit repository.ShortUrlVisit) error {
+func (r *shortUrlVisitRepo) CreateVisit(ctx context.Context, visit shortlink.Visit) error {
 	if visit.CreatedAt.IsZero() {
 		visit.CreatedAt = time.Now()
 	}
@@ -42,7 +43,7 @@ func (r *shortUrlVisitRepo) CreateVisit(ctx context.Context, visit repository.Sh
 	return nil
 }
 
-func (r *shortUrlVisitRepo) BatchCreateVisits(ctx context.Context, visits []repository.ShortUrlVisit) error {
+func (r *shortUrlVisitRepo) BatchCreateVisits(ctx context.Context, visits []shortlink.Visit) error {
 	if len(visits) == 0 {
 		return nil
 	}
@@ -78,12 +79,12 @@ func (r *shortUrlVisitRepo) BatchCreateVisits(ctx context.Context, visits []repo
 	return nil
 }
 
-func (r *shortUrlVisitRepo) GetStats(ctx context.Context, shortCode string, topN int) (*repository.ShortUrlStats, error) {
+func (r *shortUrlVisitRepo) GetStats(ctx context.Context, shortCode string, topN int) (*shortlink.Stats, error) {
 	if topN <= 0 {
 		topN = 5
 	}
 
-	stats := &repository.ShortUrlStats{ShortCode: shortCode}
+	stats := &shortlink.Stats{ShortCode: shortCode}
 	if err := r.db.WithContext(ctx).
 		Table("short_url_visits").
 		Where("short_code = ?", shortCode).
@@ -111,7 +112,7 @@ func (r *shortUrlVisitRepo) GetStats(ctx context.Context, shortCode string, topN
 		stats.LastVisitedAt = &lastVisitedAt.Time
 	}
 
-	var topReferers []repository.StatsItem
+	var topReferers []shortlink.StatsItem
 	if err := r.db.WithContext(ctx).
 		Table("short_url_visits").
 		Select("referer AS value, COUNT(*) AS count").
@@ -124,7 +125,7 @@ func (r *shortUrlVisitRepo) GetStats(ctx context.Context, shortCode string, topN
 	}
 	stats.TopReferers = topReferers
 
-	var topUserAgents []repository.StatsItem
+	var topUserAgents []shortlink.StatsItem
 	if err := r.db.WithContext(ctx).
 		Table("short_url_visits").
 		Select("user_agent AS value, COUNT(*) AS count").

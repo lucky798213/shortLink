@@ -14,33 +14,30 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"short_url/internal/shortlink"
 	"short_url/pkg/generator"
 	"short_url/rpc/repository"
 	cachepkg "short_url/rpc/repository/cache"
 )
 
 const (
-	StatusActive   = "active"
-	StatusExpired  = "expired"
-	StatusNotFound = "not_found"
+	StatusActive   = shortlink.StatusActive
+	StatusExpired  = shortlink.StatusExpired
+	StatusNotFound = shortlink.StatusNotFound
 )
 
-var ErrInvalidExpireAt = errors.New("expire_at must be in the future")
+var ErrInvalidExpireAt = shortlink.ErrInvalidExpireAt
 
 type ShortUrlResult struct {
-	Row    *repository.ShortUrl
-	Status string
+	Row    *shortlink.Link
+	Status shortlink.Status
 }
 
-type VisitInfo struct {
-	ClientIP  string
-	UserAgent string
-	Referer   string
-}
+type VisitInfo = shortlink.VisitInfo
 
 type ShortUrlStatsResult struct {
-	Stats  *repository.ShortUrlStats
-	Status string
+	Stats  *shortlink.Stats
+	Status shortlink.Status
 }
 
 type ShortUrlServiceOptions struct {
@@ -96,7 +93,7 @@ type ShortUrlService struct {
 	notFoundCacheTTL time.Duration                              // 空结果缓存 TTL，用于缓存不存在的短码，防止穿透数据库。
 	localCacheTTL    time.Duration                              // 本地缓存 TTL，通常比远程缓存短，降低本地脏数据停留时间。
 	cacheJitterRatio float64                                    // 远程缓存 TTL 抖动比例，让大量 key 不在同一时间集中失效。
-	visitCh          chan repository.ShortUrlVisit              // 异步访问日志队列，跳转成功后先入队，再由后台 worker 落库。
+	visitCh          chan shortlink.Visit                       // 异步访问日志队列，跳转成功后先入队，再由后台 worker 落库。
 	visitStateMu     sync.RWMutex                               // 保护访问日志队列的关闭状态，避免发送方与关闭方竞争。
 	visitClosed      bool                                       // 表示访问日志队列已经停止接收新事件。
 	visitWG          sync.WaitGroup                             // 等待访问日志 worker 刷出剩余批次并退出。
@@ -174,7 +171,7 @@ func NewShortUrlServiceWithOptions(repo repository.ShortUrlRepo, opts ShortUrlSe
 		})
 	}
 	if opts.VisitRepo != nil {
-		svc.visitCh = make(chan repository.ShortUrlVisit, opts.VisitQueueSize)
+		svc.visitCh = make(chan shortlink.Visit, opts.VisitQueueSize)
 	}
 	if svc.visitCh != nil && opts.VisitWorkerCount > 0 {
 		svc.startVisitWorkers(opts.VisitWorkerCount, opts.VisitBatchSize, opts.VisitFlushInterval)
@@ -195,6 +192,10 @@ func NewShortUrlServiceWithOptions(repo repository.ShortUrlRepo, opts ShortUrlSe
 // 另一种方案是先预生成短码再插入，但这样需要处理碰撞重试，复杂度更高。
 // 两步写入虽然多一次 UPDATE，但逻辑简单可靠，且 MySQL 自增 ID 天然保证了唯一性。
 func (s *ShortUrlService) CreateShortUrl(ctx context.Context, originURL string, expireAtUnix int64) (string, error) {
+	originURL, err := shortlink.NormalizeOriginURL(originURL)
+	if err != nil {
+		return "", err
+	}
 	//把入参的Unix 时间戳解析为程序可用的时间格式（如 time.Time）
 	expireAt, err := s.parseExpireAt(expireAtUnix)
 	if err != nil {
@@ -286,7 +287,7 @@ func (s *ShortUrlService) GetShortUrlStats(ctx context.Context, shortCode string
 	if s.visitRepo == nil {
 		return &ShortUrlStatsResult{
 			Status: result.Status,
-			Stats:  &repository.ShortUrlStats{ShortCode: shortCode},
+			Stats:  &shortlink.Stats{ShortCode: shortCode},
 		}, nil
 	}
 
@@ -295,7 +296,7 @@ func (s *ShortUrlService) GetShortUrlStats(ctx context.Context, shortCode string
 		return nil, fmt.Errorf("get short url stats: %w", err)
 	}
 	if stats == nil {
-		stats = &repository.ShortUrlStats{ShortCode: shortCode}
+		stats = &shortlink.Stats{ShortCode: shortCode}
 	}
 	stats.ShortCode = shortCode
 	return &ShortUrlStatsResult{
@@ -404,21 +405,11 @@ func (s *ShortUrlService) loadShortUrlFromRepo(ctx context.Context, shortCode st
 }
 
 func (s *ShortUrlService) parseExpireAt(expireAtUnix int64) (*time.Time, error) {
-	if expireAtUnix == 0 {
-		return nil, nil
-	}
-	if expireAtUnix <= s.nowTime().Unix() {
-		return nil, ErrInvalidExpireAt
-	}
-	expireAt := time.Unix(expireAtUnix, 0)
-	return &expireAt, nil
+	return shortlink.ParseExpireAt(expireAtUnix, s.nowTime())
 }
 
-func (s *ShortUrlService) status(row *repository.ShortUrl) string {
-	if row.ExpireAt != nil && !row.ExpireAt.After(s.nowTime()) {
-		return StatusExpired
-	}
-	return StatusActive
+func (s *ShortUrlService) status(row *shortlink.Link) shortlink.Status {
+	return row.StatusAt(s.nowTime())
 }
 
 func (s *ShortUrlService) nowTime() time.Time {
@@ -497,7 +488,7 @@ func (s *ShortUrlService) addBloom(ctx context.Context, shortCode string) {
 	}
 }
 
-func (s *ShortUrlService) cacheTTL(row *repository.ShortUrl, status string) time.Duration {
+func (s *ShortUrlService) cacheTTL(row *shortlink.Link, status shortlink.Status) time.Duration {
 	if status == StatusActive && row.ExpireAt != nil {
 		ttl := row.ExpireAt.Sub(s.nowTime())
 		if ttl > 0 {
@@ -507,7 +498,7 @@ func (s *ShortUrlService) cacheTTL(row *repository.ShortUrl, status string) time
 	return s.jitterTTL(s.defaultCacheTTL)
 }
 
-func (s *ShortUrlService) localCacheTTLFor(row *repository.ShortUrl, status string) time.Duration {
+func (s *ShortUrlService) localCacheTTLFor(row *shortlink.Link, status shortlink.Status) time.Duration {
 	if status == StatusActive && row != nil && row.ExpireAt != nil {
 		ttl := row.ExpireAt.Sub(s.nowTime())
 		if ttl > 0 && ttl < s.localCacheTTL {
@@ -540,7 +531,7 @@ func (s *ShortUrlService) enqueueVisit(shortCode string, info *VisitInfo) {
 		return
 	}
 
-	visit := repository.ShortUrlVisit{
+	visit := shortlink.Visit{
 		ShortCode: shortCode,
 		IP:        s.hashIP(info.ClientIP),
 		UserAgent: truncate(info.UserAgent, 512),
@@ -593,7 +584,7 @@ func (s *ShortUrlService) startVisitBatchWorkers(workerCount int, batchSize int,
 			ticker := time.NewTicker(flushInterval)
 			defer ticker.Stop()
 
-			batch := make([]repository.ShortUrlVisit, 0, batchSize)
+			batch := make([]shortlink.Visit, 0, batchSize)
 			flush := func() {
 				if len(batch) == 0 {
 					return
@@ -603,7 +594,7 @@ func (s *ShortUrlService) startVisitBatchWorkers(workerCount int, batchSize int,
 					slog.Warn("batch create short url visits failed", "count", len(batch), "err", err)
 				}
 				cancel()
-				batch = make([]repository.ShortUrlVisit, 0, batchSize)
+				batch = make([]shortlink.Visit, 0, batchSize)
 			}
 
 			for {

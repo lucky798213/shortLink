@@ -10,7 +10,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"short_url/rpc/repository"
+	"short_url/internal/shortlink"
 )
 
 var ErrMiss = errors.New("short url cache miss")
@@ -22,14 +22,14 @@ type ShortUrlCache interface {
 }
 
 type ShortUrlEntry struct {
-	ShortCode string `json:"short_code"`
-	OriginURL string `json:"origin_url"`
-	CreatedAt int64  `json:"created_at"`
-	ExpireAt  int64  `json:"expire_at"`
-	Status    string `json:"status"`
+	ShortCode string           `json:"short_code"`
+	OriginURL string           `json:"origin_url"`
+	CreatedAt int64            `json:"created_at"`
+	ExpireAt  int64            `json:"expire_at"`
+	Status    shortlink.Status `json:"status"`
 }
 
-func NewShortUrlEntry(row *repository.ShortUrl, status string) ShortUrlEntry {
+func NewShortUrlEntry(row *shortlink.Link, status shortlink.Status) ShortUrlEntry {
 	entry := ShortUrlEntry{
 		ShortCode: row.ShortCode,
 		OriginURL: row.OriginURL,
@@ -42,12 +42,12 @@ func NewShortUrlEntry(row *repository.ShortUrl, status string) ShortUrlEntry {
 	return entry
 }
 
-func (e ShortUrlEntry) ToRow() *repository.ShortUrl {
+func (e ShortUrlEntry) ToRow() *shortlink.Link {
 	if e.ShortCode == "" && e.OriginURL == "" {
 		return nil
 	}
 
-	row := &repository.ShortUrl{
+	row := &shortlink.Link{
 		ShortCode: e.ShortCode,
 		OriginURL: e.OriginURL,
 		CreatedAt: time.Unix(e.CreatedAt, 0),

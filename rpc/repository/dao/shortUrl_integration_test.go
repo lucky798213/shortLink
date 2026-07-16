@@ -9,8 +9,8 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	"short_url/internal/shortlink"
 	"short_url/pkg/generator"
-	"short_url/rpc/repository"
 )
 
 func TestShortUrlRepoIntegration(t *testing.T) {
@@ -85,7 +85,7 @@ func TestShortUrlVisitRepoIntegration(t *testing.T) {
 	shortCode := "visit-it"
 	now := time.Now().Truncate(time.Second)
 
-	visits := []repository.ShortUrlVisit{
+	visits := []shortlink.Visit{
 		{ShortCode: shortCode, IP: "hash-a", UserAgent: "agent-a", Referer: "referer-a", CreatedAt: now},
 		{ShortCode: shortCode, IP: "hash-b", UserAgent: "agent-a", Referer: "referer-a", CreatedAt: now.Add(time.Second)},
 		{ShortCode: shortCode, IP: "hash-a", UserAgent: "agent-b", Referer: "referer-b", CreatedAt: now.Add(2 * time.Second)},

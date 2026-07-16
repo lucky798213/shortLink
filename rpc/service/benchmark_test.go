@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"short_url/rpc/repository"
+	"short_url/internal/shortlink"
 	cachepkg "short_url/rpc/repository/cache"
 )
 
 func BenchmarkGetOriginUrlLocalCacheHit(b *testing.B) {
 	local := cachepkg.NewLocalShortUrlCache(1000)
-	entry := cachepkg.NewShortUrlEntry(&repository.ShortUrl{
+	entry := cachepkg.NewShortUrlEntry(&shortlink.Link{
 		ShortCode: "000001",
 		OriginURL: "https://example.com",
 		CreatedAt: time.Unix(100, 0),

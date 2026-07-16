@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"short_url/internal/shortlink"
 	"short_url/rpc/repository"
 )
 
@@ -78,7 +79,7 @@ func (r *shortUrlRepo) UpdateShortCode(ctx context.Context, id uint64, shortCode
 	return nil
 }
 
-func (r *shortUrlRepo) BatchCreate(ctx context.Context, rows []repository.ShortUrlCreateInput) error {
+func (r *shortUrlRepo) BatchCreate(ctx context.Context, rows []shortlink.CreateInput) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -98,8 +99,8 @@ func (r *shortUrlRepo) BatchCreate(ctx context.Context, rows []repository.ShortU
 // - (nil, nil)：记录不存在（包括已软删除的记录）
 // - (row, nil)：查询成功
 // - (nil, error)：数据库异常
-func (r *shortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*repository.ShortUrl, error) {
-	var row repository.ShortUrl
+func (r *shortUrlRepo) FindByShortCode(ctx context.Context, shortCode string) (*shortlink.Link, error) {
+	var row shortlink.Link
 	err := r.db.WithContext(ctx).
 		Table("short_urls").
 		Where("short_code = ? AND is_deleted = 0", shortCode).

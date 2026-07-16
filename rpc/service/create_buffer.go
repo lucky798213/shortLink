@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"short_url/internal/shortlink"
 	"short_url/pkg/generator"
 	"short_url/rpc/repository"
 )
@@ -197,7 +198,7 @@ func (b *CreateBuffer) flush(requests []createBufferRequest) {
 	}
 
 	//rows 是准备批量插入数据库的数据
-	rows := make([]repository.ShortUrlCreateInput, 0, len(requests))
+	rows := make([]shortlink.CreateInput, 0, len(requests))
 
 	//pending 是准备回传结果的数据：
 	pending := make([]pendingCreate, 0, len(requests))
@@ -215,7 +216,7 @@ func (b *CreateBuffer) flush(requests []createBufferRequest) {
 		shortCode := generator.Encode(id)
 
 		//组装数据库插入行
-		rows = append(rows, repository.ShortUrlCreateInput{
+		rows = append(rows, shortlink.CreateInput{
 			ID:        id,
 			ShortCode: shortCode,
 			OriginURL: req.originURL,

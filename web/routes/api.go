@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
+	"short_url/internal/shortlink"
 	"short_url/proto"
 	"short_url/web/middlewares"
 )
@@ -293,34 +293,12 @@ func (h *Handler) Redirect(c *gin.Context) {
 
 // 严格校验传入的「源站地址（Origin URL）」是否为合法的 HTTP/HTTPS 地址
 func normalizeOriginURL(rawURL string) (string, error) {
-	originURL := strings.TrimSpace(rawURL)
-	if originURL == "" {
-		return "", url.InvalidHostError("empty origin_url")
-	}
-
-	parsed, err := url.Parse(originURL)
-	if err != nil {
-		return "", err
-	}
-	if parsed.Host == "" {
-		return "", url.InvalidHostError("missing host")
-	}
-	if strings.ContainsAny(parsed.Host, " \t\r\n") {
-		return "", url.InvalidHostError("host contains whitespace")
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", url.InvalidHostError("unsupported scheme")
-	}
-	return originURL, nil
+	return shortlink.NormalizeOriginURL(rawURL)
 }
 
 func validateExpireAt(expireAt int64) error {
-	// 如果 expireAt 不是0，并且 小于等于 当前时间
-	if expireAt != 0 && expireAt <= time.Now().Unix() {
-		return url.InvalidHostError("expire_at must be in the future")
-	}
-	return nil
+	_, err := shortlink.ParseExpireAt(expireAt, time.Now())
+	return err
 }
 
 func (h *Handler) shortURL(shortCode string) string {

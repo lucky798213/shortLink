@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"short_url/internal/shortlink"
 	"short_url/proto"
-	"short_url/rpc/repository"
 	"short_url/rpc/service"
 )
 
@@ -58,13 +58,13 @@ func (s *ShortUrlServer) GetOriginUrl(ctx context.Context, req *proto.GetOriginU
 	if result == nil || result.Row == nil {
 		// 短码不存在，返回空响应（非 error），
 		// 让调用方根据 OriginUrl=="" 判断为 404
-		return &proto.GetOriginUrlResponse{Status: service.StatusNotFound}, nil
+		return &proto.GetOriginUrlResponse{Status: string(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetOriginUrlResponse{
 		OriginUrl: result.Row.OriginURL,
 		CreatedAt: result.Row.CreatedAt.Unix(), // time.Time → Unix 时间戳（秒）
-		Status:    result.Status,
+		Status:    string(result.Status),
 	}
 	// ExpireAt 可能为 nil（未设置过期时间），需要判空
 	if result.Row.ExpireAt != nil {
@@ -80,14 +80,14 @@ func (s *ShortUrlServer) GetShortUrl(ctx context.Context, req *proto.GetShortUrl
 		return nil, fmt.Errorf("rpc get short url: %w", err)
 	}
 	if result == nil || result.Row == nil {
-		return &proto.GetShortUrlResponse{Status: service.StatusNotFound}, nil
+		return &proto.GetShortUrlResponse{Status: string(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlResponse{
 		ShortCode: result.Row.ShortCode,
 		OriginUrl: result.Row.OriginURL,
 		CreatedAt: result.Row.CreatedAt.Unix(),
-		Status:    result.Status,
+		Status:    string(result.Status),
 	}
 	if result.Row.ExpireAt != nil {
 		resp.ExpireAt = result.Row.ExpireAt.Unix()
@@ -111,14 +111,14 @@ func (s *ShortUrlServer) GetShortUrlStats(ctx context.Context, req *proto.GetSho
 		return nil, fmt.Errorf("rpc get short url stats: %w", err)
 	}
 	if result == nil || result.Status == service.StatusNotFound || result.Stats == nil {
-		return &proto.GetShortUrlStatsResponse{Status: service.StatusNotFound}, nil
+		return &proto.GetShortUrlStatsResponse{Status: string(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlStatsResponse{
 		ShortCode:     result.Stats.ShortCode,
 		Pv:            result.Stats.PV,
 		Uv:            result.Stats.UV,
-		Status:        result.Status,
+		Status:        string(result.Status),
 		TopReferers:   toProtoStatsItems(result.Stats.TopReferers),
 		TopUserAgents: toProtoStatsItems(result.Stats.TopUserAgents),
 	}
@@ -128,7 +128,7 @@ func (s *ShortUrlServer) GetShortUrlStats(ctx context.Context, req *proto.GetSho
 	return resp, nil
 }
 
-func toProtoStatsItems(items []repository.StatsItem) []*proto.StatsItem {
+func toProtoStatsItems(items []shortlink.StatsItem) []*proto.StatsItem {
 	resp := make([]*proto.StatsItem, 0, len(items))
 	for _, item := range items {
 		resp = append(resp, &proto.StatsItem{
