@@ -32,7 +32,7 @@ ShortLink 是一个分层实现的短链接系统，用于把长 URL 转换成�
 - Git
 - 可选：`curl`、`jq`，用于命令行调试接口
 
-> 本仓库已经包含手写的 Go gRPC stub，普通构建不依赖 `protoc`。如果后续新增 RPC，需要同时更新 `proto/short_url.proto` 和 `proto/*.pb.go`。
+> Protobuf 契约位于 `api/shortlink/v1/shortlink.proto`，Go 代码由 Buf 和官方插件生成。普通构建不依赖生成工具；修改协议后执行 `buf lint && buf generate`。
 
 ### 方式一：使用 Docker Compose 启动
 
@@ -81,23 +81,16 @@ docker compose down -v
 docker compose up -d mysql redis etcd
 ```
 
-复制配置模板：
-
-```bash
-cp rpc/config/config.template.yaml rpc/config/config.yaml
-cp web/config/config.template.yaml web/config/config.yaml
-```
-
 启动 RPC 服务：
 
 ```bash
-go run ./rpc
+go run ./cmd/rpc
 ```
 
 另开一个终端启动 Web 服务：
 
 ```bash
-go run ./web
+go run ./cmd/web
 ```
 
 常用校验命令：
@@ -177,26 +170,19 @@ curl -X DELETE http://localhost:8080/api/short-links/000001
 
 ```text
 .
-├── pkg/
-│   ├── generator/          # Base62 短码编码、解码与合法性校验
-│   ├── bloom/              # Redis Bloom Filter 与降级实现
-│   ├── discovery/          # etcd 服务注册与发现
-│   ├── logging/            # slog/zap 日志初始化
-│   └── sharding/           # 分片路由计算
-├── proto/                  # Protobuf 定义和手写 Go gRPC stub
-├── rpc/
-│   ├── grpc/               # gRPC Handler，适配 proto 请求与响应
-│   ├── service/            # 核心业务逻辑、缓存策略、异步写入与统计
-│   ├── repository/         # Repository 接口、DAO、Redis/本地缓存实现
-│   ├── job/                # 过期清理与 Bloom Filter 重建任务
-│   ├── config/             # RPC 配置模板
-│   └── main.go             # RPC 服务入口
-├── web/
-│   ├── routes/             # HTTP API、短链跳转和健康检查
-│   ├── middlewares/        # 请求 ID、访问日志、限流、API Key 鉴权
-│   ├── pkg/                # Redis/内存令牌桶限流器
-│   ├── config/             # Web 配置模板
-│   └── main.go             # Web 服务入口
+├── api/shortlink/v1/       # 版本化 Protobuf 契约与生成代码
+├── cmd/
+│   ├── rpc/                # RPC 进程入口，只负责装配和生命周期
+│   └── web/                # Web 进程入口，只负责装配和生命周期
+├── configs/                # RPC 与 Web 的类型化 YAML 配置
+├── internal/
+│   ├── config/             # 配置加载、默认值、环境变量覆盖与校验
+│   ├── shortlink/          # 领域模型、校验、短码算法
+│   │   └── app/            # Creator/Resolver/Manager/Stats 应用用例与端口
+│   ├── transport/          # gRPC 与 HTTP 协议适配器
+│   ├── infra/              # MySQL 分片存储、ID 号段、Redis/本地缓存
+│   ├── jobs/               # 过期清理与 Bloom Filter 重建
+│   └── platform/           # Bloom、etcd、日志、限流等平台能力
 ├── scripts/
 │   ├── mysql/              # 初始化 SQL 与迁移脚本
 │   └── wrk/                # 压测脚本
@@ -210,31 +196,26 @@ curl -X DELETE http://localhost:8080/api/short-links/000001
 
 ## 架构分层
 
-```text
-Client
-  │
-  ▼
-Gin Web Gateway (:8080)
-  │  HTTP API / Redirect / Rate Limit / Circuit Breaker
-  ▼
-gRPC RPC Service (:50051)
-  │  Business Logic / Cache / Bloom Filter / Async Visit Logging
-  ├── Redis: cache, rate limit, bloom filter
-  └── MySQL: short links, sharded tables, visits, id allocator
+```mermaid
+flowchart LR
+    C["客户端"] --> H["HTTP 传输层<br/>Gin :8080"]
+    H --> G["gRPC 传输层<br/>:50051"]
+    G --> A["应用层<br/>Creator / Resolver / Manager / Stats"]
+    A --> D["短链接领域模型"]
+    A --> P["端口接口"]
+    P --> M["MySQL 基础设施<br/>分片表 / 号段 / 访问日志"]
+    P --> R["缓存基础设施<br/>LocalCache / Redis"]
+    A --> B["Bloom Filter"]
+    J["后台任务<br/>清理 / 重建"] --> P
 ```
+
+依赖方向固定为“传输层 → 应用层 → 领域层”，MySQL、Redis 等实现通过应用层端口反向接入。HTTP 层不访问数据库，领域层也不知道 GORM、Redis 或 protobuf。
 
 ## 配置说明
 
-配置使用 Viper 读取 YAML，并支持环境变量覆盖。Docker 镜像默认复制 `config.template.yaml` 到 `/etc/short_url/config.yaml`，Compose 中通过环境变量覆盖容器地址。
+配置由 `internal/config` 一次性解析到强类型结构体，并在启动前完成必填项校验。默认文件为 `configs/rpc.yaml` 和 `configs/web.yaml`；环境变量仍以大写下划线形式覆盖，例如 `DB_DSN`、`GRPC_ADDR`、`REDIS_ADDR`。
 
-本地开发时建议复制模板后再修改：
-
-```bash
-cp rpc/config/config.template.yaml rpc/config/config.yaml
-cp web/config/config.template.yaml web/config/config.yaml
-```
-
-`rpc/config/config.yaml` 和 `web/config/config.yaml` 属于本地配置文件，已经加入 `.gitignore`。
+需要使用其他配置文件时，分别设置 `SHORT_URL_RPC_CONFIG` 或 `SHORT_URL_WEB_CONFIG`。Docker 镜像把两份默认配置复制到 `/etc/short_url/rpc.yaml` 和 `/etc/short_url/web.yaml`。
 
 ## 压测结果
 
@@ -252,6 +233,9 @@ cp web/config/config.template.yaml web/config/config.yaml
 ```bash
 go build ./...
 go test ./...
-go test ./pkg/generator/... -v
+go test -race ./...
+go test ./internal/shortlink/code/... -v
 go vet ./...
+buf lint
+buf generate
 ```

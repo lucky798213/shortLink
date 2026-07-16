@@ -19,12 +19,12 @@
 
 **代码位置：**
 
-- `web/main.go:59-75`：Web 选择固定 gRPC 地址或 etcd resolver target，并创建 Handler。
-- `web/routes/api.go:40-55`：Gin Handler 内部持有 `proto.ShortUrlClient` 和 gRPC health client。
-- `rpc/main.go:139-155`：RPC 启动 gRPC server，并在 etcd 开启时注册服务地址。
-- `pkg/discovery/etcd.go:50-76`：RPC 服务注册，使用 etcd lease + keepalive。
-- `pkg/discovery/etcd.go:91-140`：自定义 gRPC resolver 解析服务地址并配置 `round_robin`。
-- `pkg/discovery/etcd.go:143-157`：watch etcd 前缀，实例变化时更新客户端地址列表。
+- `cmd/web/main.go`：Web 选择固定 gRPC 地址或 etcd resolver target，并创建 Handler。
+- `internal/transport/httpserver/api.go`：Gin Handler 内部持有 `proto.ShortUrlClient` 和 gRPC health client。
+- `cmd/rpc/main.go`：RPC 启动 gRPC server，并在 etcd 开启时注册服务地址。
+- `internal/platform/discovery/etcd.go`：RPC 服务注册，使用 etcd lease + keepalive。
+- `internal/platform/discovery/etcd.go`：自定义 gRPC resolver 解析服务地址并配置 `round_robin`。
+- `internal/platform/discovery/etcd.go`：watch etcd 前缀，实例变化时更新客户端地址列表。
 
 </details>
 
@@ -37,15 +37,15 @@ Web 服务和 RPC 服务都监听 `SIGINT` / `SIGTERM`。
 
 Web 层收到信号后，会调用 `http.Server.Shutdown`，并设置 5 秒超时。`Shutdown` 会先停止接收新连接，然后等待已经进入 Handler 的请求处理完成；如果 5 秒内没有处理完，就会返回超时错误并记录告警。因此 Web 层最长等待 5 秒。
 
-RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NOT_SERVING`，然后调用 `grpc.Server.GracefulStop()`。`GracefulStop` 会停止接收新 RPC，并等待已有 RPC 完成。当前 RPC 层没有额外包一层显式超时，所以它会尽量等已有 RPC 结束；这是比较温和的关闭方式，但生产上可以再加一个超时兜底，超时后调用 `Stop()` 强制关闭。
+RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NOT_SERVING`，然后调用 `grpc.Server.GracefulStop()` 停止接收新 RPC 并等待已有 RPC 完成。等待上限为 5 秒，超时后调用 `Stop()` 强制关闭。随后应用服务会继续在 5 秒关闭窗口内排空创建队列和访问日志队列，再关闭 Redis 与数据库连接。
 
 **代码位置：**
 
-- `web/main.go:35-36`：注册 `SIGINT` / `SIGTERM` 信号上下文。
-- `web/main.go:103-110`：Web 收到信号后用 5 秒超时执行 `server.Shutdown`。
-- `rpc/main.go:39-40`：RPC 注册 `SIGINT` / `SIGTERM` 信号上下文。
-- `rpc/main.go:141-143`：注册标准 gRPC health service。
-- `rpc/main.go:159-163`：RPC 收到信号后设置 `NOT_SERVING` 并执行 `GracefulStop()`。
+- `cmd/web/main.go`：注册 `SIGINT` / `SIGTERM` 信号上下文。
+- `cmd/web/main.go`：Web 收到信号后用 5 秒超时执行 `server.Shutdown`。
+- `cmd/rpc/main.go`：RPC 注册 `SIGINT` / `SIGTERM` 信号上下文。
+- `cmd/rpc/main.go`：注册标准 gRPC health service。
+- `cmd/rpc/main.go`：RPC 收到信号后设置 `NOT_SERVING` 并执行 `GracefulStop()`。
 
 </details>
 
@@ -87,10 +87,10 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **代码位置：**
 
-- `rpc/repository/dao/idAllocator.go:21-29`：`MySQLIDAllocator` 结构体，实例内缓存当前号段。
-- `rpc/repository/dao/idAllocator.go:62-101`：事务内插入 allocator 行、行锁读取、推进 `next_id`。
+- `internal/infra/mysql/id_allocator.go`：`MySQLIDAllocator` 结构体，实例内缓存当前号段。
+- `internal/infra/mysql/id_allocator.go`：事务内插入 allocator 行、行锁读取、推进 `next_id`。
 - `scripts/mysql/init.sql`：创建 `short_url_id_alloc` 表。
-- `rpc/main.go:91-92`：RPC 初始化 MySQL 号段分配器并注入分片仓库。
+- `cmd/rpc/main.go`：RPC 初始化 MySQL 号段分配器并注入分片仓库。
 
 </details>
 
@@ -107,11 +107,11 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **代码位置：**
 
-- `rpc/config/config.template.yaml:29-30`：默认 `id_allocator.step: 1000`。
-- `rpc/main.go:187-188`：代码默认值也是 1000。
-- `rpc/repository/dao/idAllocator.go:31-40`：构造 allocator，step 为 0 时回退 1000。
-- `rpc/repository/dao/idAllocator.go:43-60`：`NextID` 内存号段未耗尽时直接返回，耗尽时同步调用 `NextRange`。
-- `rpc/repository/dao/idAllocator.go:62-101`：从 MySQL 同步领取新号段。
+- `configs/rpc.yaml`：默认 `id_allocator.step: 1000`。
+- `cmd/rpc/main.go`：代码默认值也是 1000。
+- `internal/infra/mysql/id_allocator.go`：构造 allocator，step 为 0 时回退 1000。
+- `internal/infra/mysql/id_allocator.go`：`NextID` 内存号段未耗尽时直接返回，耗尽时同步调用 `NextRange`。
+- `internal/infra/mysql/id_allocator.go`：从 MySQL 同步领取新号段。
 
 </details>
 
@@ -128,9 +128,9 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **代码位置：**
 
-- `rpc/repository/dao/idAllocator.go:21-29`：`nextID` 和 `rangeEnd` 是内存字段。
-- `rpc/repository/dao/idAllocator.go:47-59`：从内存范围递增返回 ID。
-- `rpc/repository/dao/idAllocator.go:91-94`：领取号段时 MySQL 的 `next_id` 已提前推进到 `end + 1`，重启后不会回退。
+- `internal/infra/mysql/id_allocator.go`：`nextID` 和 `rangeEnd` 是内存字段。
+- `internal/infra/mysql/id_allocator.go`：从内存范围递增返回 ID。
+- `internal/infra/mysql/id_allocator.go`：领取号段时 MySQL 的 `next_id` 已提前推进到 `end + 1`，重启后不会回退。
 
 </details>
 
@@ -139,19 +139,19 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **回答：**
 
-短码是由 ID 通过 Base62 编码得到的，而且编码是可逆的。创建时先从号段分配器拿到全局 ID，再用 `generator.Encode(id)` 生成 6 位短码，然后按 `id % 64` 写入 `short_urls_00` 到 `short_urls_63` 中的一张表。
+短码是由 ID 通过 Base62 编码得到的，而且编码是可逆的。创建时先从号段分配器拿到全局 ID，再用 `code.Encode(id)` 生成 6 位短码，然后按 `id % 64` 写入 `short_urls_00` 到 `short_urls_63` 中的一张表。
 
-查询时不需要扫 64 张表。服务先校验短码是否合法，再用 `generator.Decode(shortCode)` 反解出 ID，然后用同样的 `id % 64` 规则计算目标分表，最后在这张表里按 `id + short_code + is_deleted = 0` 查询。
+查询时不需要扫 64 张表。服务先校验短码是否合法，再用 `code.Decode(shortCode)` 反解出 ID，然后用同样的 `id % 64` 规则计算目标分表，最后在这张表里按 `id + short_code + is_deleted = 0` 查询。
 
 这个设计的关键点是短码和 ID 可逆，查询时可以直接定位物理表。
 
 **代码位置：**
 
-- `pkg/generator/generator.go:46-74`：ID 编码为 6 位 Base62 短码。
-- `pkg/generator/generator.go:76-94`：短码反解为 ID，并做长度和字符集校验。
-- `pkg/sharding/sharding.go:30-40`：`TableByID` 使用 `id % shardCount`，`TableByShortCode` 先解码再路由。
-- `rpc/repository/dao/shardedShortUrl.go:39-59`：创建时拿 ID、生成短码、写目标分片。
-- `rpc/repository/dao/shardedShortUrl.go:76-94`：查询时由短码定位单张分表。
+- `internal/shortlink/code/code.go`：ID 编码为 6 位 Base62 短码。
+- `internal/shortlink/code/code.go`：短码反解为 ID，并做长度和字符集校验。
+- `internal/infra/mysql/sharding/sharding.go`：`TableByID` 使用 `id % shardCount`，`TableByShortCode` 先解码再路由。
+- `internal/shortlink/app/creator.go` 和 `internal/shortlink/app/create_buffer.go`：领取 ID、生成短码并组装完整写入数据。
+- `internal/infra/mysql/sharded_link_store.go`：查询时由短码定位单张分表。
 
 </details>
 
@@ -170,12 +170,12 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **代码位置：**
 
-- `rpc/repository/cache/shortUrl.go:131-147`：LocalCache 结构体，`map + RWMutex`。
-- `rpc/repository/cache/shortUrl.go:149-169`：读取时检查本地 TTL。
-- `rpc/repository/cache/shortUrl.go:171-191`：写入本地缓存和简单容量淘汰。
-- `rpc/service/shortUrl.go:251-259`：删除短链时执行缓存双删。
-- `rpc/service/shortUrl.go:431-450`：写 Redis、本地缓存和删除缓存。
-- `rpc/config/config.template.yaml:12-17`：缓存 TTL 和本地缓存容量配置。
+- `internal/infra/cache/cache.go`：LocalCache 结构体，`map + RWMutex`。
+- `internal/infra/cache/cache.go`：读取时检查本地 TTL。
+- `internal/infra/cache/cache.go`：写入本地缓存和简单容量淘汰。
+- `internal/shortlink/app/manager.go`：删除短链时执行缓存双删。
+- `internal/shortlink/app/resolver.go`：读写 Redis、本地缓存和删除缓存。
+- `configs/rpc.yaml`：缓存 TTL 和本地缓存容量配置。
 
 </details>
 
@@ -194,13 +194,13 @@ RPC 层收到信号后，会先把标准 gRPC health service 状态设置为 `NO
 
 **代码位置：**
 
-- `pkg/bloom/bloom.go:18-40`：Redis Bloom Filter 结构体和默认参数。
-- `pkg/bloom/bloom.go:47-61`：批量 `SETBIT` 写入 Bloom。
-- `pkg/bloom/bloom.go:63-86`：`GETBIT` 判断是否存在，Redis 异常或 key 不存在时 fail-open。
-- `rpc/service/shortUrl.go:191-198`：批量创建成功后写入 Bloom。
-- `rpc/service/shortUrl.go:452-459`：封装 Bloom 写入失败告警。
-- `rpc/job/maintenance.go:64-100`：扫描 DB 重建 Bloom。
-- `rpc/config/config.template.yaml:38-44`：Bloom 开关、key、bits、hashes 和重建周期。
+- `internal/platform/bloom/bloom.go`：Redis Bloom Filter 结构体和默认参数。
+- `internal/platform/bloom/bloom.go`：批量 `SETBIT` 写入 Bloom。
+- `internal/platform/bloom/bloom.go`：`GETBIT` 判断是否存在，Redis 异常或 key 不存在时 fail-open。
+- `internal/shortlink/app/creator.go` 和 `internal/shortlink/app/create_buffer.go`：创建成功后写入 Bloom。
+- `internal/shortlink/app/creator.go`：封装 Bloom 写入失败告警。
+- `internal/jobs/maintenance.go`：扫描 DB 重建 Bloom。
+- `configs/rpc.yaml`：Bloom 开关、key、bits、hashes 和重建周期。
 
 </details>
 
@@ -226,10 +226,8 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/service/shortUrl.go:291-321`：短码校验、LocalCache、Redis、Bloom 判断。
-- `rpc/service/shortUrl.go:324-329`：singleflight 合并请求，并在回源前二次查 Redis。
-- `rpc/service/shortUrl.go:340-365`：MySQL 回源后写 Redis 和 LocalCache。
-- `rpc/service/shortUrl.go:392-429`：Redis 命中时通过 `warmLocal` 回填 LocalCache。
+- `internal/shortlink/app/resolver.go`：短码校验、LocalCache、Redis、Bloom、singleflight 和 MySQL 回源。
+- `internal/shortlink/app/resolver_test.go`：验证首个调用方取消不会取消共享回源。
 
 </details>
 
@@ -246,12 +244,12 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/service/shortUrl.go:392-399`：缓存读取异常时告警并回源。
-- `pkg/bloom/bloom.go:63-86`：Bloom 异常或 key 不存在时 fail-open。
+- `internal/shortlink/app/resolver.go`：缓存读取异常时告警并回源。
+- `internal/platform/bloom/bloom.go`：Bloom 异常或 key 不存在时 fail-open。
 - `nginx/nginx.conf:11`、`nginx/nginx.conf:31-32`：Nginx IP 级限流。
-- `web/main.go:177-196`：Web 限流器初始化，Redis 不可用时降级到内存令牌桶。
-- `web/middlewares/middlewares.go:65-89`：运行时限流失败时放行并记录告警。
-- `web/main.go:164-175`：Hystrix 命令配置。
+- `cmd/web/main.go`：Web 限流器初始化，Redis 不可用时降级到内存令牌桶。
+- `internal/transport/httpserver/middleware/middleware.go`：运行时限流失败时放行并记录告警。
+- `cmd/web/main.go`：Hystrix 命令配置。
 
 </details>
 
@@ -270,11 +268,11 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/config/config.template.yaml:32-36`：写缓冲配置。
-- `rpc/main.go:189-192`：默认配置值。
-- `rpc/service/create_buffer.go:45-71`：创建 buffer，设置默认 queue、batch、flush interval 和 enqueue timeout。
-- `rpc/service/create_buffer.go:74-95`：请求入队并同步等待写入结果。
-- `rpc/service/create_buffer.go:97-116`：batch 满或 ticker 到期就 flush。
+- `configs/rpc.yaml`：写缓冲配置。
+- `cmd/rpc/main.go`：默认配置值。
+- `internal/shortlink/app/create_buffer.go`：创建 buffer，设置默认 queue、batch、flush interval 和 enqueue timeout。
+- `internal/shortlink/app/create_buffer.go`：请求入队并同步等待写入结果。
+- `internal/shortlink/app/create_buffer.go`：batch 满或 ticker 到期就 flush。
 
 </details>
 
@@ -285,16 +283,14 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 当前批量写入是用 GORM 的 `Create(&slice)`，GORM 会生成多 values 的批量 insert。因为已经做了 64 分表，批次会先按目标分表分组，然后每张表分别执行一次批量插入。
 
-当前没有显式包一个跨分片事务。也就是说，如果一个 batch 被拆到多张表，前面某张表插入成功，后面某张表因为唯一约束或其他错误失败，已经成功的表不会自动回滚。CreateBuffer 会把这次 `BatchCreate` 返回的错误通知给本批次 pending 请求，但严格来说，跨分片原子性还不完整。
-
-在实际面试中我会这样讲：当前依赖号段 ID 保证短码唯一，正常情况下不会出现唯一约束冲突；如果需要更强的批次原子性，可以把每个分片批次放进对应分片事务，或者在失败时按 ID 做补偿删除，并让客户端按幂等 key 重试。
+所有分片批次都包在同一个 GORM/MySQL 事务中。任意一张分片表的批量插入失败，整个事务回滚，已经写入的其他分片不会留下部分数据；CreateBuffer 会把同一个失败结果返回给本批次所有等待请求。号段 ID 负责正常路径下的全局唯一性，事务负责异常路径下的批次原子性。
 
 **代码位置：**
 
-- `rpc/repository/dao/shardedShortUrl.go:111-132`：按分表分组后 GORM 批量插入。
-- `rpc/service/create_buffer.go:119-159`：flush 时分配 ID、组装 rows、调用 `BatchCreate`，失败后把错误返回给等待中的请求。
-- `pkg/generator/generator.go:17-18`：6 位短码容量边界。
-- `rpc/repository/dao/idAllocator.go:62-101`：号段分配保证全局 ID 不重复。
+- `internal/infra/mysql/sharded_link_store.go`：按分表分组后 GORM 批量插入。
+- `internal/shortlink/app/create_buffer.go`：flush 时分配 ID、组装 rows、调用 `BatchCreate`，失败后把错误返回给等待中的请求。
+- `internal/shortlink/code/code.go`：6 位短码容量边界。
+- `internal/infra/mysql/id_allocator.go`：号段分配保证全局 ID 不重复。
 
 </details>
 
@@ -311,11 +307,10 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/service/shortUrl.go:235-243`：跳转查询成功后异步入队访问日志。
-- `rpc/service/shortUrl.go:499-516`：访问日志写入 channel，队列满则丢弃并告警。
-- `rpc/service/shortUrl.go:536-574`：后台 worker 按 batch size 或 flush interval 批量落库。
-- `rpc/repository/dao/shortUrlVisit.go:45-79`：访问日志批量写入 MySQL。
-- `rpc/config/config.template.yaml:19-24`：访问日志队列、worker、batch 和 flush interval 配置。
+- `internal/shortlink/app/service.go`：跳转查询成功后把访问事件交给 VisitWriter。
+- `internal/shortlink/app/visit_writer.go`：访问日志入队、队列满降级、批量落库和关闭排空。
+- `internal/infra/mysql/visit_store.go`：访问日志批量写入 MySQL。
+- `configs/rpc.yaml`：访问日志队列、worker、batch 和 flush interval 配置。
 
 </details>
 
@@ -332,9 +327,8 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/repository/dao/shortUrlVisit.go:81-100`：PV 和 UV 查询，UV 使用 `COUNT(DISTINCT ip)`。
-- `rpc/service/shortUrl.go:499-510`：入队访问日志时写入 hash 后的 IP。
-- `rpc/service/shortUrl.go:576-583`：IP 加盐 SHA256 哈希。
+- `internal/infra/mysql/visit_store.go`：PV 和 UV 查询，UV 使用 `COUNT(DISTINCT ip)`。
+- `internal/shortlink/app/visit_writer.go`：入队访问日志时保存加盐 SHA256 后的 IP。
 - `scripts/mysql/init.sql`：访问日志表结构。
 
 </details>
@@ -352,9 +346,9 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/repository/dao/shortUrlVisit.go:114-125`：Top Referer 实时 SQL 聚合。
-- `rpc/repository/dao/shortUrlVisit.go:127-138`：Top User-Agent 实时 SQL 聚合。
-- `rpc/service/shortUrl.go:262-289`：统计接口先确认短链存在，再查询访问统计。
+- `internal/infra/mysql/visit_store.go`：Top Referer 实时 SQL 聚合。
+- `internal/infra/mysql/visit_store.go`：Top User-Agent 实时 SQL 聚合。
+- `internal/shortlink/app/stats.go`：统计接口先确认短链存在，再查询访问统计。
 
 </details>
 
@@ -371,10 +365,9 @@ LocalCache miss 但 Redis hit 时，会回填 LocalCache。代码里 `getCache(c
 
 **代码位置：**
 
-- `rpc/service/shortUrl.go:576-583`：`salt + ip` 做 SHA256 并 hex 编码。
-- `rpc/service/shortUrl.go:499-510`：访问日志入队时保存 hash 后的 IP。
-- `rpc/repository/dao/shortUrlVisit.go:94-100`：基于 hash 后 IP 做 `COUNT(DISTINCT ip)`。
-- `rpc/config/config.template.yaml:19-24`：`stats.ip_hash_salt` 配置。
+- `internal/shortlink/app/visit_writer.go`：`salt + ip` 做 SHA256、hex 编码并写入访问事件。
+- `internal/infra/mysql/visit_store.go`：基于 hash 后 IP 做 `COUNT(DISTINCT ip)`。
+- `configs/rpc.yaml`：`stats.ip_hash_salt` 配置。
 
 </details>
 
@@ -393,11 +386,11 @@ TTL 当前固定为 1 分钟，每次访问都会 `PEXPIRE` 更新 TTL。这样�
 
 **代码位置：**
 
-- `web/middlewares/middlewares.go:65-89`：按 `/api/` 区分 API / redirect，并用 `scope + IP` 作为限流 key。
-- `web/pkg/ratelimiter.go:12-39`：Redis Lua 令牌桶脚本。
-- `web/pkg/ratelimiter.go:54-71`：Redis limiter 默认参数和 1 分钟 TTL。
-- `web/pkg/ratelimiter.go:74-94`：执行 Lua 脚本并返回是否允许。
-- `web/main.go:194-195`：API 和 redirect limiter 的 Redis key prefix。
+- `internal/transport/httpserver/middleware/middleware.go`：按 `/api/` 区分 API / redirect，并用 `scope + IP` 作为限流 key。
+- `internal/platform/ratelimit/limiter.go`：Redis Lua 令牌桶脚本。
+- `internal/platform/ratelimit/limiter.go`：Redis limiter 默认参数和 1 分钟 TTL。
+- `internal/platform/ratelimit/limiter.go`：执行 Lua 脚本并返回是否允许。
+- `cmd/web/main.go`：API 和 redirect limiter 的 Redis key prefix。
 
 </details>
 
@@ -414,12 +407,12 @@ TTL 当前固定为 1 分钟，每次访问都会 `PEXPIRE` 更新 TTL。这样�
 
 **代码位置：**
 
-- `web/config/config.template.yaml:15-19`：限流默认参数。
-- `web/main.go:124-127`：代码默认限流值。
-- `web/main.go:177-196`：按配置创建 Redis 或内存令牌桶。
+- `configs/web.yaml`：限流默认参数。
+- `cmd/web/main.go`：代码默认限流值。
+- `cmd/web/main.go`：按配置创建 Redis 或内存令牌桶。
 - `scripts/wrk/create.lua`：创建短链压测脚本，目标接口是 `/api/short-links`。
-- `web/routes/benchmark_test.go`：HTTP Handler benchmark。
-- `rpc/service/benchmark_test.go`：Service LocalCache benchmark。
+- `internal/transport/httpserver/benchmark_test.go`：HTTP Handler benchmark。
+- `internal/shortlink/app/benchmark_test.go`：Service LocalCache benchmark。
 
 </details>
 
@@ -437,14 +430,14 @@ TTL 当前固定为 1 分钟，每次访问都会 `PEXPIRE` 更新 TTL。这样�
 **代码位置：**
 
 - `go.mod`：依赖 `github.com/afex/hystrix-go`。
-- `web/config/config.template.yaml:21-26`：Hystrix 配置项。
-- `web/main.go:136-140`：Hystrix 默认配置。
-- `web/main.go:164-175`：为 create/get/stats/delete/redirect 配置 Hystrix command。
-- `web/routes/api.go:93-105`：创建接口使用 `hystrix.DoC`。
-- `web/routes/api.go:123-134`：详情查询接口使用 `hystrix.DoC`。
-- `web/routes/api.go:158-169`：统计接口使用 `hystrix.DoC`。
-- `web/routes/api.go:193-204`：删除接口使用 `hystrix.DoC`。
-- `web/routes/api.go:239-253`：跳转接口使用 `hystrix.DoC`。
+- `configs/web.yaml`：Hystrix 配置项。
+- `cmd/web/main.go`：Hystrix 默认配置。
+- `cmd/web/main.go`：为 create/get/stats/delete/redirect 配置 Hystrix command。
+- `internal/transport/httpserver/api.go`：创建接口使用 `hystrix.DoC`。
+- `internal/transport/httpserver/api.go`：详情查询接口使用 `hystrix.DoC`。
+- `internal/transport/httpserver/api.go`：统计接口使用 `hystrix.DoC`。
+- `internal/transport/httpserver/api.go`：删除接口使用 `hystrix.DoC`。
+- `internal/transport/httpserver/api.go`：跳转接口使用 `hystrix.DoC`。
 
 </details>
 
@@ -461,10 +454,10 @@ fail-open 的好处是 Redis 短暂抖动不会直接造成全站 429；坏处�
 
 **代码位置：**
 
-- `web/main.go:177-196`：启动时 Redis 不可用则降级到内存令牌桶。
-- `web/middlewares/middlewares.go:77-82`：运行时限流器报错时记录日志并放行。
-- `web/pkg/ratelimiter.go:96-150`：进程内令牌桶实现。
-- `web/main.go:164-175`：Hystrix 作为 RPC 调用保护。
+- `cmd/web/main.go`：启动时 Redis 不可用则降级到内存令牌桶。
+- `internal/transport/httpserver/middleware/middleware.go`：运行时限流器报错时记录日志并放行。
+- `internal/platform/ratelimit/limiter.go`：进程内令牌桶实现。
+- `cmd/web/main.go`：Hystrix 作为 RPC 调用保护。
 - `nginx/nginx.conf:11`、`nginx/nginx.conf:31-32`：Nginx IP 级兜底限流。
 
 </details>
@@ -476,7 +469,7 @@ fail-open 的好处是 Redis 短暂抖动不会直接造成全站 429；坏处�
 
 **回答：**
 
-当前 Zap 日志写到标准输出，不写应用本地文件。`pkg/logging` 初始化了全局 Zap logger，并把 Go 标准 `slog` 的默认 handler 桥接到 Zap，这样项目里原来用 `slog` 的地方也会走统一结构化日志。
+当前 Zap 日志写到标准输出，不写应用本地文件。`internal/platform/logging` 初始化了全局 Zap logger，并把 Go 标准 `slog` 的默认 handler 桥接到 Zap，这样项目里原来用 `slog` 的地方也会走统一结构化日志。
 
 日志轮转当前不在应用内处理，而是交给容器运行时、Docker logging driver 或部署平台处理。这是容器化服务常见做法：应用只负责输出结构化日志到 stdout/stderr，日志采集、落盘、轮转和保留周期由外部平台处理。
 
@@ -484,11 +477,11 @@ fail-open 的好处是 Redis 短暂抖动不会直接造成全站 429；坏处�
 
 **代码位置：**
 
-- `pkg/logging/logging.go:18-39`：按配置初始化 Zap production/development logger。
-- `pkg/logging/logging.go:41-49`：设置全局 Zap logger，并把 `slog` 桥接到 Zap。
-- `pkg/logging/logging.go:61-68`：默认 logger 输出到 `os.Stdout`。
-- `web/main.go:28-33`、`rpc/main.go:32-37`：Web/RPC 启动时初始化日志。
-- `web/config/config.template.yaml:40-42`、`rpc/config/config.template.yaml:60-62`：日志配置。
+- `internal/platform/logging/logging.go`：按配置初始化 Zap production/development logger。
+- `internal/platform/logging/logging.go`：设置全局 Zap logger，并把 `slog` 桥接到 Zap。
+- `internal/platform/logging/logging.go`：默认 logger 输出到 `os.Stdout`。
+- `cmd/web/main.go`、`cmd/rpc/main.go`：Web/RPC 启动时初始化日志。
+- `configs/web.yaml`、`configs/rpc.yaml`：日志配置。
 
 </details>
 
@@ -505,11 +498,11 @@ HTTP 请求进来后，中间件会优先读取 `X-Request-ID`，如果没有就
 
 **代码位置：**
 
-- `web/middlewares/middlewares.go:17-23`：统一错误响应结构包含 request_id。
-- `web/middlewares/middlewares.go:25-35`：JSON 错误响应写入 request_id。
-- `web/middlewares/middlewares.go:37-46`：生成或读取 `X-Request-ID`，并写入响应头。
-- `web/middlewares/middlewares.go:49-62`：HTTP 访问日志带 request_id。
-- `web/routes/api.go:90-101`、`web/routes/api.go:236-249`：RPC 调用使用 HTTP request context，但当前没有注入 gRPC metadata。
+- `internal/transport/httpserver/middleware/middleware.go`：统一错误响应结构包含 request_id。
+- `internal/transport/httpserver/middleware/middleware.go`：JSON 错误响应写入 request_id。
+- `internal/transport/httpserver/middleware/middleware.go`：生成或读取 `X-Request-ID`，并写入响应头。
+- `internal/transport/httpserver/middleware/middleware.go`：HTTP 访问日志带 request_id。
+- `internal/transport/httpserver/api.go`、`internal/transport/httpserver/api.go`：RPC 调用使用 HTTP request context，但当前没有注入 gRPC metadata。
 
 </details>
 
@@ -526,13 +519,11 @@ HTTP 请求进来后，中间件会优先读取 `X-Request-ID`，如果没有就
 
 **代码位置：**
 
-- `web/main.go:90-91`：Web 暴露 `/healthz` 和 `/readyz`。
-- `web/routes/health.go`：Web 存活和就绪检查。
-- `rpc/main.go:141-143`：RPC 注册标准 gRPC health service。
-- `web/middlewares/middlewares.go:49-62`：HTTP 结构化访问日志。
-- `rpc/service/shortUrl.go:392-399`：缓存异常告警。
-- `rpc/service/shortUrl.go:499-516`：访问日志队列满告警。
-- `rpc/service/shortUrl.go:536-574`：访问日志批量写入失败告警。
+- `cmd/web/main.go`：Web 暴露 `/healthz` 和 `/readyz`。
+- `internal/transport/httpserver/health.go`：Web 存活和就绪检查。
+- `cmd/rpc/main.go`：RPC 注册标准 gRPC health service。
+- `internal/transport/httpserver/middleware/middleware.go`：HTTP 结构化访问日志。
+- `internal/shortlink/app/resolver.go`：缓存异常告警。
+- `internal/shortlink/app/visit_writer.go`：访问日志队列满和批量写入失败告警。
 
 </details>
-

@@ -5,6 +5,7 @@
 # Local configuration
 rpc/config/config.yaml
 web/config/config.yaml
+configs/*.local.yaml
 
 # Build outputs
 bin/
