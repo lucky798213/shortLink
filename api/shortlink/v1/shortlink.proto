@@ -1,10 +1,17 @@
 syntax = "proto3";
 
-package short_url;
+package shortlink.v1;
 
-option go_package = "./;proto";
+option go_package = "short_url/api/shortlink/v1;shortlinkv1";
 
-service ShortUrl {
+enum ShortLinkStatus {
+  SHORT_LINK_STATUS_UNSPECIFIED = 0;
+  SHORT_LINK_STATUS_ACTIVE = 1;
+  SHORT_LINK_STATUS_EXPIRED = 2;
+  SHORT_LINK_STATUS_NOT_FOUND = 3;
+}
+
+service ShortLinkService {
   rpc CreateShortUrl(CreateShortUrlRequest) returns (CreateShortUrlResponse);
   rpc GetOriginUrl(GetOriginUrlRequest) returns (GetOriginUrlResponse);
   rpc GetShortUrl(GetShortUrlRequest) returns (GetShortUrlResponse);
@@ -32,7 +39,7 @@ message GetOriginUrlResponse {
   string origin_url = 1;
   int64 created_at = 2;
   int64 expire_at = 3;
-  string status = 4;
+  ShortLinkStatus status = 4;
 }
 
 message GetShortUrlRequest {
@@ -44,7 +51,7 @@ message GetShortUrlResponse {
   string origin_url = 2;
   int64 created_at = 3;
   int64 expire_at = 4;
-  string status = 5;
+  ShortLinkStatus status = 5;
 }
 
 message DeleteShortUrlRequest {
@@ -71,5 +78,5 @@ message GetShortUrlStatsResponse {
   int64 last_visited_at = 4;
   repeated StatsItem top_referers = 5;
   repeated StatsItem top_user_agents = 6;
-  string status = 7;
+  ShortLinkStatus status = 7;
 }

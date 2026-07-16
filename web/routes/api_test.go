@@ -10,14 +10,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
-	"short_url/proto"
+	proto "short_url/api/shortlink/v1"
 )
 
 type fakeShortUrlClient struct {
 	originURL    string
 	expireAt     int64
 	createCalled bool
+	createErr    error
 
 	getShortResp    *proto.GetShortUrlResponse
 	getOriginResp   *proto.GetOriginUrlResponse
@@ -33,6 +36,9 @@ func (f *fakeShortUrlClient) CreateShortUrl(ctx context.Context, in *proto.Creat
 	f.createCalled = true
 	f.originURL = in.OriginUrl
 	f.expireAt = in.ExpireAt
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
 	return &proto.CreateShortUrlResponse{ShortCode: "000001"}, nil
 }
 
@@ -244,7 +250,7 @@ func TestGetShortLinkReturnsDetail(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp["short_code"] != "000001" || resp["short_url"] != "http://localhost:8080/000001" || resp["status"] != statusActive {
+	if resp["short_code"] != "000001" || resp["short_url"] != "http://localhost:8080/000001" || resp["status"] != shortLinkStatusString(statusActive) {
 		t.Fatalf("unexpected response: %#v", resp)
 	}
 	if client.getShortCode != "000001" {
@@ -416,5 +422,24 @@ func TestRedirectSendsVisitMetadata(t *testing.T) {
 	}
 	if client.originRequest.UserAgent != "test-agent" || client.originRequest.Referer != "https://referer.example" {
 		t.Fatalf("originRequest = %#v, want visit metadata", client.originRequest)
+	}
+}
+
+func TestCreateShortLinkMapsRPCInvalidArgument(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := &fakeShortUrlClient{
+		createErr: status.Error(codes.InvalidArgument, "invalid short link request"),
+	}
+	handler := &Handler{rpcClient: client, baseURL: "http://localhost:8080"}
+	req := httptest.NewRequest(http.MethodPost, "/api/short-links", bytes.NewBufferString(`{"origin_url":"https://example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	handler.CreateShortLink(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusBadRequest, w.Body.String())
 	}
 }

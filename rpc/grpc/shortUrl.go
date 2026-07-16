@@ -2,10 +2,9 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 
+	proto "short_url/api/shortlink/v1"
 	"short_url/internal/shortlink"
-	"short_url/proto"
 	"short_url/rpc/service"
 )
 
@@ -15,7 +14,7 @@ import (
 // 将来 .proto 文件新增 RPC 方法时，UnimplementedShortUrlServer 会提供默认空实现，
 // 这样现有代码无需修改就能编译通过，实现了"前向兼容"。
 type ShortUrlServer struct {
-	proto.UnimplementedShortUrlServer
+	proto.UnimplementedShortLinkServiceServer
 	svc *service.ShortUrlService
 }
 
@@ -37,7 +36,7 @@ func NewShortUrlServer(svc *service.ShortUrlService) *ShortUrlServer {
 func (s *ShortUrlServer) CreateShortUrl(ctx context.Context, req *proto.CreateShortUrlRequest) (*proto.CreateShortUrlResponse, error) {
 	shortCode, err := s.svc.CreateShortUrl(ctx, req.OriginUrl, req.ExpireAt)
 	if err != nil {
-		return nil, fmt.Errorf("rpc create short url: %w", err)
+		return nil, toGRPCError(err)
 	}
 	return &proto.CreateShortUrlResponse{ShortCode: shortCode}, nil
 }
@@ -53,18 +52,18 @@ func (s *ShortUrlServer) GetOriginUrl(ctx context.Context, req *proto.GetOriginU
 		Referer:   req.Referer,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("rpc get origin url: %w", err)
+		return nil, toGRPCError(err)
 	}
 	if result == nil || result.Row == nil {
 		// 短码不存在，返回空响应（非 error），
 		// 让调用方根据 OriginUrl=="" 判断为 404
-		return &proto.GetOriginUrlResponse{Status: string(service.StatusNotFound)}, nil
+		return &proto.GetOriginUrlResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetOriginUrlResponse{
 		OriginUrl: result.Row.OriginURL,
 		CreatedAt: result.Row.CreatedAt.Unix(), // time.Time → Unix 时间戳（秒）
-		Status:    string(result.Status),
+		Status:    toProtoStatus(result.Status),
 	}
 	// ExpireAt 可能为 nil（未设置过期时间），需要判空
 	if result.Row.ExpireAt != nil {
@@ -77,17 +76,17 @@ func (s *ShortUrlServer) GetOriginUrl(ctx context.Context, req *proto.GetOriginU
 func (s *ShortUrlServer) GetShortUrl(ctx context.Context, req *proto.GetShortUrlRequest) (*proto.GetShortUrlResponse, error) {
 	result, err := s.svc.GetShortUrl(ctx, req.ShortCode)
 	if err != nil {
-		return nil, fmt.Errorf("rpc get short url: %w", err)
+		return nil, toGRPCError(err)
 	}
 	if result == nil || result.Row == nil {
-		return &proto.GetShortUrlResponse{Status: string(service.StatusNotFound)}, nil
+		return &proto.GetShortUrlResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlResponse{
 		ShortCode: result.Row.ShortCode,
 		OriginUrl: result.Row.OriginURL,
 		CreatedAt: result.Row.CreatedAt.Unix(),
-		Status:    string(result.Status),
+		Status:    toProtoStatus(result.Status),
 	}
 	if result.Row.ExpireAt != nil {
 		resp.ExpireAt = result.Row.ExpireAt.Unix()
@@ -99,7 +98,7 @@ func (s *ShortUrlServer) GetShortUrl(ctx context.Context, req *proto.GetShortUrl
 func (s *ShortUrlServer) DeleteShortUrl(ctx context.Context, req *proto.DeleteShortUrlRequest) (*proto.DeleteShortUrlResponse, error) {
 	deleted, err := s.svc.DeleteShortUrl(ctx, req.ShortCode)
 	if err != nil {
-		return nil, fmt.Errorf("rpc delete short url: %w", err)
+		return nil, toGRPCError(err)
 	}
 	return &proto.DeleteShortUrlResponse{Deleted: deleted}, nil
 }
@@ -108,17 +107,17 @@ func (s *ShortUrlServer) DeleteShortUrl(ctx context.Context, req *proto.DeleteSh
 func (s *ShortUrlServer) GetShortUrlStats(ctx context.Context, req *proto.GetShortUrlStatsRequest) (*proto.GetShortUrlStatsResponse, error) {
 	result, err := s.svc.GetShortUrlStats(ctx, req.ShortCode)
 	if err != nil {
-		return nil, fmt.Errorf("rpc get short url stats: %w", err)
+		return nil, toGRPCError(err)
 	}
 	if result == nil || result.Status == service.StatusNotFound || result.Stats == nil {
-		return &proto.GetShortUrlStatsResponse{Status: string(service.StatusNotFound)}, nil
+		return &proto.GetShortUrlStatsResponse{Status: toProtoStatus(service.StatusNotFound)}, nil
 	}
 
 	resp := &proto.GetShortUrlStatsResponse{
 		ShortCode:     result.Stats.ShortCode,
 		Pv:            result.Stats.PV,
 		Uv:            result.Stats.UV,
-		Status:        string(result.Status),
+		Status:        toProtoStatus(result.Status),
 		TopReferers:   toProtoStatsItems(result.Stats.TopReferers),
 		TopUserAgents: toProtoStatsItems(result.Stats.TopUserAgents),
 	}
@@ -126,6 +125,19 @@ func (s *ShortUrlServer) GetShortUrlStats(ctx context.Context, req *proto.GetSho
 		resp.LastVisitedAt = result.Stats.LastVisitedAt.Unix()
 	}
 	return resp, nil
+}
+
+func toProtoStatus(value shortlink.Status) proto.ShortLinkStatus {
+	switch value {
+	case shortlink.StatusActive:
+		return proto.ShortLinkStatus_SHORT_LINK_STATUS_ACTIVE
+	case shortlink.StatusExpired:
+		return proto.ShortLinkStatus_SHORT_LINK_STATUS_EXPIRED
+	case shortlink.StatusNotFound:
+		return proto.ShortLinkStatus_SHORT_LINK_STATUS_NOT_FOUND
+	default:
+		return proto.ShortLinkStatus_SHORT_LINK_STATUS_UNSPECIFIED
+	}
 }
 
 func toProtoStatsItems(items []shortlink.StatsItem) []*proto.StatsItem {

@@ -18,10 +18,10 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
+	proto "short_url/api/shortlink/v1"
 	bloompkg "short_url/pkg/bloom"
 	"short_url/pkg/discovery"
 	"short_url/pkg/logging"
-	"short_url/proto"
 	grpcserver "short_url/rpc/grpc"
 	"short_url/rpc/job"
 	cachepkg "short_url/rpc/repository/cache"
@@ -160,7 +160,7 @@ func main() {
 
 	//注册短链接 RPC 服务
 	//把 rpc/grpc/shortUrl.go 里的 ShortUrlServer 注册进去，而这个 server 内部持有刚才创建的 svc。
-	proto.RegisterShortUrlServer(s, grpcserver.NewShortUrlServer(svc))
+	proto.RegisterShortLinkServiceServer(s, grpcserver.NewShortUrlServer(svc))
 
 	//注册健康检查服务
 	//让外部可以通过 gRPC health check 判断 RPC 服务是否健康。

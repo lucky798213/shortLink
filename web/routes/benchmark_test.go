@@ -9,7 +9,7 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/gin-gonic/gin"
 
-	"short_url/proto"
+	proto "short_url/api/shortlink/v1"
 )
 
 func BenchmarkRedirectHandlerMockRPC(b *testing.B) {

@@ -10,25 +10,27 @@ import (
 	"github.com/afex/hystrix-go/hystrix"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 
+	proto "short_url/api/shortlink/v1"
 	"short_url/internal/shortlink"
-	"short_url/proto"
 	"short_url/web/middlewares"
 )
 
 const (
-	statusActive   = "active"
-	statusExpired  = "expired"
-	statusNotFound = "not_found"
+	statusActive   = proto.ShortLinkStatus_SHORT_LINK_STATUS_ACTIVE
+	statusExpired  = proto.ShortLinkStatus_SHORT_LINK_STATUS_EXPIRED
+	statusNotFound = proto.ShortLinkStatus_SHORT_LINK_STATUS_NOT_FOUND
 )
 
 // Handler 封装 HTTP 路由处理所需的依赖。
 // 将 gRPC 客户端作为 Handler 的成员变量，避免在每个路由处理函数中重复创建连接。
 type Handler struct {
 	conn         *grpc.ClientConn
-	rpcClient    proto.ShortUrlClient
+	rpcClient    proto.ShortLinkServiceClient
 	healthClient grpc_health_v1.HealthClient
 	baseURL      string
 }
@@ -54,7 +56,7 @@ func NewHandler(grpcAddr string, baseURL string) (*Handler, error) {
 	}
 	return &Handler{
 		conn:         conn,
-		rpcClient:    proto.NewShortUrlClient(conn),
+		rpcClient:    proto.NewShortLinkServiceClient(conn),
 		healthClient: grpc_health_v1.NewHealthClient(conn),
 		baseURL:      baseURL,
 	}, nil
@@ -121,7 +123,7 @@ func (h *Handler) CreateShortLink(c *gin.Context) {
 
 	if err != nil {
 		slog.Error("RPC CreateShortUrl 调用失败", "err", err)
-		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "failed to create short url")
+		writeRPCError(c, err)
 		return
 	}
 
@@ -152,7 +154,7 @@ func (h *Handler) GetShortLink(c *gin.Context) {
 
 	if err != nil {
 		slog.Error("RPC GetShortUrl 调用失败", "err", err)
-		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "internal error")
+		writeRPCError(c, err)
 		return
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) GetShortLink(c *gin.Context) {
 		"origin_url": resp.OriginUrl,
 		"created_at": resp.CreatedAt,
 		"expire_at":  resp.ExpireAt,
-		"status":     resp.Status,
+		"status":     shortLinkStatusString(resp.Status),
 	})
 }
 
@@ -190,7 +192,7 @@ func (h *Handler) GetShortLinkStats(c *gin.Context) {
 	}, nil)
 	if err != nil {
 		slog.Error("RPC GetShortUrlStats 调用失败", "err", err)
-		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "internal error")
+		writeRPCError(c, err)
 		return
 	}
 	if resp.Status == statusNotFound || resp.ShortCode == "" {
@@ -225,7 +227,7 @@ func (h *Handler) DeleteShortLink(c *gin.Context) {
 	}, nil)
 	if err != nil {
 		slog.Error("RPC DeleteShortUrl 调用失败", "err", err)
-		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "internal error")
+		writeRPCError(c, err)
 		return
 	}
 	if !resp.Deleted {
@@ -274,7 +276,7 @@ func (h *Handler) Redirect(c *gin.Context) {
 	}, nil)
 	if err != nil {
 		slog.Error("RPC GetOriginUrl 调用失败", "err", err)
-		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "internal error")
+		writeRPCError(c, err)
 		return
 	}
 	if resp.Status == statusExpired {
@@ -328,4 +330,37 @@ func statsItems(items []*proto.StatsItem) []gin.H {
 		})
 	}
 	return resp
+}
+
+func shortLinkStatusString(value proto.ShortLinkStatus) string {
+	switch value {
+	case statusActive:
+		return string(shortlink.StatusActive)
+	case statusExpired:
+		return string(shortlink.StatusExpired)
+	case statusNotFound:
+		return string(shortlink.StatusNotFound)
+	default:
+		return ""
+	}
+}
+
+func writeRPCError(c *gin.Context, err error) {
+	grpcStatus, _ := status.FromError(err)
+	switch grpcStatus.Code() {
+	case codes.InvalidArgument:
+		middlewares.JSONError(c, http.StatusBadRequest, "bad_request", grpcStatus.Message())
+	case codes.NotFound:
+		middlewares.JSONError(c, http.StatusNotFound, "not_found", "short url not found")
+	case codes.ResourceExhausted:
+		middlewares.JSONError(c, http.StatusTooManyRequests, "rate_limited", "too many requests")
+	case codes.DeadlineExceeded:
+		middlewares.JSONError(c, http.StatusGatewayTimeout, "rpc_timeout", "upstream timeout")
+	case codes.Canceled:
+		middlewares.JSONError(c, http.StatusRequestTimeout, "request_canceled", "request canceled")
+	case codes.Internal:
+		middlewares.JSONError(c, http.StatusBadGateway, "rpc_error", "upstream internal error")
+	default:
+		middlewares.JSONError(c, http.StatusServiceUnavailable, "rpc_unavailable", "upstream unavailable")
+	}
 }
