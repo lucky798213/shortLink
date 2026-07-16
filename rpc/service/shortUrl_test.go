@@ -84,6 +84,8 @@ func (m *mockShortUrlRepo) DeleteByShortCode(ctx context.Context, shortCode stri
 }
 
 type mockShortUrlCache struct {
+	mu sync.Mutex
+
 	getEntry *cachepkg.ShortUrlEntry
 	getErr   error
 	setErr   error
@@ -103,6 +105,8 @@ type mockShortUrlCache struct {
 var _ cachepkg.ShortUrlCache = (*mockShortUrlCache)(nil)
 
 func (m *mockShortUrlCache) Get(ctx context.Context, shortCode string) (*cachepkg.ShortUrlEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.getCalled = true
 	m.getShortCode = shortCode
 	if m.getErr != nil {
@@ -112,6 +116,8 @@ func (m *mockShortUrlCache) Get(ctx context.Context, shortCode string) (*cachepk
 }
 
 func (m *mockShortUrlCache) Set(ctx context.Context, entry cachepkg.ShortUrlEntry, ttl time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.setCalled = true
 	m.setEntry = entry
 	m.setTTL = ttl
@@ -119,6 +125,8 @@ func (m *mockShortUrlCache) Set(ctx context.Context, entry cachepkg.ShortUrlEntr
 }
 
 func (m *mockShortUrlCache) Delete(ctx context.Context, shortCode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.deleteCalled = true
 	m.deleteCount++
 	m.deleteShortCode = shortCode

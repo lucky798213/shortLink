@@ -133,12 +133,17 @@ func (r *shardedShortUrlRepo) BatchCreate(ctx context.Context, rows []repository
 		byTable[r.strategy.TableByID(row.ID)] = append(byTable[r.strategy.TableByID(row.ID)], row)
 	}
 
-	//遍历每个分片表，以及这个表对应的一批数据。
-	//对每张表执行一次批量插入。
-	for table, tableRows := range byTable {
-		if err := r.db.WithContext(ctx).Table(table).Create(&tableRows).Error; err != nil {
-			return fmt.Errorf("batch insert %s: %w", table, err)
+	// 同一个批次可能跨越多张分片表，必须放在同一个事务里。
+	// 否则中途某张表写入失败时，前面已经写入的分片无法回滚，调用方却会收到整批失败。
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for table, tableRows := range byTable {
+			if err := tx.Table(table).Create(&tableRows).Error; err != nil {
+				return fmt.Errorf("batch insert %s: %w", table, err)
+			}
 		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("batch insert sharded short urls: %w", err)
 	}
 	return nil
 }
