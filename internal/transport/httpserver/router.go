@@ -19,6 +19,7 @@ func NewRouter(handler *Handler, opts RouterOptions) *gin.Engine {
 	router.Use(gin.Recovery(), middleware.RequestID(), middleware.AccessLog())
 	router.Use(middleware.RateLimit(opts.APILimiter, opts.RedirectLimiter))
 	router.Use(middleware.APIKey(opts.AuthEnabled, opts.APIKey))
+	registerFrontendRoutes(router)
 	router.GET("/healthz", handler.Healthz)
 	router.GET("/readyz", handler.Readyz)
 	router.POST("/api/short-links", handler.CreateShortLink)

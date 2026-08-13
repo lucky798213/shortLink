@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="简洁、可靠的短链接生成与管理工具">
+  <meta name="theme-color" content="#f2eadc">
+  <title>折链 · 短链接工具</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+  <header class="site-header" aria-label="网站页眉">
+    <a class="brand" href="/" aria-label="折链首页">
+      <span class="brand-mark" aria-hidden="true">折</span>
+      <span>折链</span>
+    </a>
+    <p class="service-state"><span aria-hidden="true"></span>短链接工作台</p>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy reveal">
+        <p class="eyebrow">SHORTER, CLEARER, YOURS.</p>
+        <h1 id="hero-title">把漫长地址，<br><em>折成一张轻巧的票。</em></h1>
+        <p class="hero-description">贴入一个链接，选择保留时间。剩下的交给折链。</p>
+        <div class="hero-note" aria-label="产品特点">
+          <span>01</span>
+          <p>六位短码<br>即刻生成</p>
+          <span>02</span>
+          <p>访问统计<br>随时查看</p>
+        </div>
+      </div>
+
+      <div class="create-column reveal reveal-late">
+        <form id="create-form" class="paper-card create-card" novalidate>
+          <div class="card-heading">
+            <div>
+              <p class="card-index">01 / CREATE</p>
+              <h2>生成短链接</h2>
+            </div>
+            <span class="stamp" aria-hidden="true">QUICK</span>
+          </div>
+
+          <div class="field-group">
+            <label for="origin-url">原始链接</label>
+            <div class="input-shell">
+              <span aria-hidden="true">↗</span>
+              <input id="origin-url" name="origin_url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/a-very-long-link" required>
+            </div>
+            <p id="origin-hint" class="field-hint">支持以 http:// 或 https:// 开头的地址</p>
+          </div>
+
+          <fieldset class="expiry-fieldset">
+            <legend>有效时间</legend>
+            <div class="choice-grid">
+              <label class="choice"><input type="radio" name="expiration" value="never" checked><span>永久</span></label>
+              <label class="choice"><input type="radio" name="expiration" value="1"><span>1 天</span></label>
+              <label class="choice"><input type="radio" name="expiration" value="7"><span>7 天</span></label>
+              <label class="choice"><input type="radio" name="expiration" value="30"><span>30 天</span></label>
+              <label class="choice choice-wide"><input type="radio" name="expiration" value="custom"><span>指定日期</span></label>
+            </div>
+            <div id="custom-expiry-wrap" class="custom-expiry" hidden>
+              <label for="custom-expiry">具体到期时间</label>
+              <input id="custom-expiry" name="custom_expiry" type="datetime-local">
+            </div>
+          </fieldset>
+
+          <button id="create-button" class="button button-primary" type="submit">
+            <span>生成短链接</span><span aria-hidden="true">→</span>
+          </button>
+          <p id="create-status" class="form-status" role="status" aria-live="polite"></p>
+        </form>
+
+        <article id="create-result" class="ticket-result" aria-labelledby="create-result-title" hidden>
+          <div class="ticket-topline">
+            <p>YOUR SHORT LINK</p>
+            <span id="result-code">——</span>
+          </div>
+          <h2 id="create-result-title">链接已经折好</h2>
+          <a id="result-url" class="result-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <div class="ticket-actions">
+            <button id="copy-created-link" class="button button-dark" type="button">复制链接</button>
+            <a id="open-created-link" class="text-action" href="#" target="_blank" rel="noopener noreferrer">打开看看 ↗</a>
+          </div>
+          <dl class="ticket-meta">
+            <div><dt>原始地址</dt><dd id="result-origin"></dd></div>
+            <div><dt>有效期至</dt><dd id="result-expiry"></dd></div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <section class="manage-section" aria-labelledby="manage-title">
+      <div class="section-heading reveal">
+        <p class="card-index">02 / MANAGE</p>
+        <h2 id="manage-title">查一查，<em>管一管。</em></h2>
+        <p>输入六位短码或完整短链接，查看去向与访问表现。</p>
+      </div>
+
+      <form id="manage-form" class="lookup-form reveal" novalidate>
+        <label for="lookup-code">短码或短链接</label>
+        <div class="lookup-row">
+          <div class="input-shell input-shell-large">
+            <span aria-hidden="true">#</span>
+            <input id="lookup-code" name="code" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="000001 或 https://s.example/000001" required>
+          </div>
+          <button id="lookup-button" class="button button-primary" type="submit">查询短链</button>
+        </div>
+        <p id="manage-status" class="form-status" role="status" aria-live="polite"></p>
+      </form>
+
+      <article id="manage-result" class="manage-result" aria-labelledby="detail-title" hidden>
+        <div class="detail-panel">
+          <div class="detail-heading">
+            <div>
+              <p class="card-index">LINK PROFILE</p>
+              <h3 id="detail-title">短链详情</h3>
+            </div>
+            <span id="detail-status" class="status-badge">有效</span>
+          </div>
+          <a id="detail-short-url" class="detail-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <dl class="detail-list">
+            <div><dt>原始地址</dt><dd><a id="detail-origin" href="#" target="_blank" rel="noopener noreferrer"></a></dd></div>
+            <div><dt>创建时间</dt><dd id="detail-created">—</dd></div>
+            <div><dt>到期时间</dt><dd id="detail-expiry">—</dd></div>
+          </dl>
+          <div class="detail-actions">
+            <button id="copy-managed-link" class="button button-dark" type="button">复制短链</button>
+            <button id="delete-link" class="button button-danger" type="button">删除短链</button>
+          </div>
+        </div>
+
+        <div class="stats-panel" aria-labelledby="stats-title">
+          <div class="stats-heading">
+            <div>
+              <p class="card-index">VISIT NOTES</p>
+              <h3 id="stats-title">访问统计</h3>
+            </div>
+            <p id="stats-status" class="inline-status" role="status" aria-live="polite"></p>
+          </div>
+          <div id="stats-content">
+            <div class="metric-grid">
+              <div class="metric"><span>总访问 PV</span><strong id="stat-pv">—</strong></div>
+              <div class="metric"><span>独立访客 UV</span><strong id="stat-uv">—</strong></div>
+            </div>
+            <p class="last-visit">最近访问 <time id="stat-last-visit">暂无记录</time></p>
+            <div class="ranking-grid">
+              <section aria-labelledby="referer-title">
+                <h4 id="referer-title">来源排行</h4>
+                <ol id="referer-list" class="ranking-list"></ol>
+              </section>
+              <section aria-labelledby="agent-title">
+                <h4 id="agent-title">设备排行</h4>
+                <ol id="agent-list" class="ranking-list"></ol>
+              </section>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>折链 <span>·</span> 让每次分享轻一点</p>
+    <p>SHORT LINK, LONG STORY.</p>
+  </footer>
+
+  <dialog id="delete-dialog" class="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description">
+    <form method="dialog">
+      <p class="card-index">DELETE LINK</p>
+      <h2 id="dialog-title">确认删除这条短链？</h2>
+      <p id="dialog-description">删除后短链将无法再访问，此操作不能撤销。</p>
+      <p id="dialog-code" class="dialog-code"></p>
+      <div class="dialog-actions">
+        <button id="cancel-delete" class="button button-quiet" value="cancel">先不删除</button>
+        <button id="confirm-delete" class="button button-danger-filled" value="confirm">确认删除</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
