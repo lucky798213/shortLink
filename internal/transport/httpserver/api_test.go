@@ -425,6 +425,35 @@ func TestRedirectSendsVisitMetadata(t *testing.T) {
 	}
 }
 
+func TestFrontendRoutesPreserveShortCodeRedirect(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := &fakeShortUrlClient{
+		getOriginResp: &proto.GetOriginUrlResponse{
+			OriginUrl: "https://example.com/landing",
+			Status:    statusActive,
+		},
+	}
+	handler := &Handler{
+		rpcClient: client,
+		baseURL:   "http://localhost:8080",
+	}
+	router := NewRouter(handler, RouterOptions{})
+	req := httptest.NewRequest(http.MethodGet, "/000001", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMovedPermanently {
+		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusMovedPermanently, w.Body.String())
+	}
+	if got := w.Header().Get("Location"); got != "https://example.com/landing" {
+		t.Fatalf("Location = %q, want %q", got, "https://example.com/landing")
+	}
+	if client.originRequest == nil || client.originRequest.ShortCode != "000001" {
+		t.Fatalf("originRequest = %#v, want short code 000001", client.originRequest)
+	}
+}
+
 func TestCreateShortLinkMapsRPCInvalidArgument(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := &fakeShortUrlClient{
