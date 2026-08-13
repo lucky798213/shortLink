@@ -3,9 +3,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /rpc-server ./rpc
+RUN CGO_ENABLED=0 go build -o /rpc-server ./cmd/rpc
 
 FROM alpine:3.21
 COPY --from=builder /rpc-server /usr/local/bin/rpc-server
-COPY rpc/config/config.template.yaml /etc/short_url/config.yaml
+COPY configs/rpc.yaml /etc/short_url/rpc.yaml
 CMD ["rpc-server"]

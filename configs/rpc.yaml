@@ -1,0 +1,64 @@
+db:
+  dsn: "root:root@tcp(127.0.0.1:3306)/short_url?charset=utf8mb4&parseTime=True&loc=Local"
+
+grpc:
+  addr: ":50051"
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+cache:
+  default_ttl: "24h"
+  not_found_ttl: "1m"
+  local_ttl: "5m"
+  local_max_entries: 10000
+  jitter_ratio: 0.1
+  lookup_timeout: "3s"
+
+stats:
+  queue_size: 10000
+  worker_count: 2
+  batch_size: 100
+  flush_interval: "1s"
+  ip_hash_salt: "short_url_dev_salt"
+
+sharding:
+  count: 64
+
+id_allocator:
+  step: 1000
+
+write_buffer:
+  queue_size: 10000
+  batch_size: 128
+  flush_interval: "10ms"
+  enqueue_timeout: "200ms"
+
+bloom:
+  enabled: true
+  key: "short_url:bloom:active"
+  bits: 268435456
+  hashes: 7
+  rebuild_interval: "10m"
+  rebuild_batch_size: 1000
+
+cleanup:
+  interval: "1m"
+  batch_size: 500
+
+etcd:
+  enabled: false
+  endpoints:
+    - "127.0.0.1:2379"
+  dial_timeout: "3s"
+  lease_ttl: 10
+
+service:
+  name: "short-url-rpc"
+  addr: "127.0.0.1:50051"
+
+logger:
+  level: "info"
+  development: true

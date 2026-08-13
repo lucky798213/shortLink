@@ -1,0 +1,43 @@
+http:
+  addr: ":8080"
+
+grpc:
+  addr: "127.0.0.1:50051"
+
+short_url:
+  base_url: "http://localhost:8080"
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+rate_limit:
+  api_rate: 50
+  api_burst: 100
+  redirect_rate: 500
+  redirect_burst: 1000
+
+circuit_breaker:
+  timeout_ms: 2500
+  max_concurrent: 100
+  request_volume_threshold: 20
+  sleep_window_ms: 5000
+  error_percent_threshold: 50
+
+auth:
+  enabled: false
+  api_key: ""
+
+etcd:
+  enabled: false
+  endpoints:
+    - "127.0.0.1:2379"
+  dial_timeout: "3s"
+
+service:
+  name: "short-url-rpc"
+
+logger:
+  level: "info"
+  development: true
