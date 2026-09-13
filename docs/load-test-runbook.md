@@ -2,6 +2,10 @@
 
 This runbook saves evidence files so the benchmark is reproducible and reviewable.
 
+> 适用范围：压测进程与 target 服务**跑在同一台机器**（本地 Docker Compose），适合功能冒烟与回归。
+> 要在服务器上出可写进简历的性能数字，请用 `docs/server-load-test-plan.md`
+> （独立压力机 + k6 开模型 + 目标机 1s 粒度指标采集，脚本在 `scripts/loadtest/`）。
+
 Run from:
 
 ```bash

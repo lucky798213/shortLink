@@ -92,8 +92,20 @@ services:
       ETCD_ENABLED: "true"
       ETCD_ENDPOINTS: "etcd:2379"
       SERVICE_NAME: "short-url-rpc"
+      # 以下默认值等同于 configs/web.yaml；压测时用环境变量放开限流与熔断并发，例如：
+      #   WEB_BIND=0.0.0.0 RATE_LIMIT_REDIRECT_RATE=100000 RATE_LIMIT_REDIRECT_BURST=100000 \
+      #   RATE_LIMIT_API_RATE=100000 RATE_LIMIT_API_BURST=100000 \
+      #   CIRCUIT_BREAKER_MAX_CONCURRENT=10000 docker compose up -d web
+      RATE_LIMIT_API_RATE: "${RATE_LIMIT_API_RATE:-50}"
+      RATE_LIMIT_API_BURST: "${RATE_LIMIT_API_BURST:-100}"
+      RATE_LIMIT_REDIRECT_RATE: "${RATE_LIMIT_REDIRECT_RATE:-500}"
+      RATE_LIMIT_REDIRECT_BURST: "${RATE_LIMIT_REDIRECT_BURST:-1000}"
+      CIRCUIT_BREAKER_MAX_CONCURRENT: "${CIRCUIT_BREAKER_MAX_CONCURRENT:-100}"
+      CIRCUIT_BREAKER_TIMEOUT_MS: "${CIRCUIT_BREAKER_TIMEOUT_MS:-2500}"
     ports:
-      - "127.0.0.1:8080:8080"
+      # 默认只绑本机，保证线上安全；压测时用 WEB_BIND=0.0.0.0 让外部压力机可直连：
+      #   WEB_BIND=0.0.0.0 docker compose up -d web
+      - "${WEB_BIND:-127.0.0.1}:8080:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz"]
       interval: 5s
