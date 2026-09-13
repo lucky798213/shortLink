@@ -25,8 +25,8 @@ services:
       retries: 10
 
   etcd:
-    # quay.io 在国内服务器经常被墙，改用 USTC 的 quay 镜像源（海外服务器可换回 quay.io/coreos/etcd:v3.5.18）
-    image: quay.mirrors.ustc.edu.cn/coreos/etcd:v3.5.18
+    # quay.io 在国内服务器经常被墙，改用 DaoCloud 的 quay 镜像源（海外服务器可换回 quay.io/coreos/etcd:v3.5.18）
+    image: quay.m.daocloud.io/coreos/etcd:v3.5.18
     command:
       - /usr/local/bin/etcd
       - --name=etcd
