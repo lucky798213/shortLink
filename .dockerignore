@@ -1,0 +1,13 @@
+# 构建上下文排除，加速镜像构建
+.git
+.workbuddy
+docs
+*.md
+!README.md
+.idea
+.vscode
+docker-compose.yaml
+Dockerfile.rpc
+Dockerfile.web
+nginx
+scripts

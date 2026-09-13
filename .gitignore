@@ -22,3 +22,6 @@ temp/
 # Environment files
 .env
 .env.*
+
+# Agent workspace
+.workbuddy/
