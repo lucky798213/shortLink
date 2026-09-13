@@ -48,6 +48,8 @@ services:
       context: .
       # 低配服务器用预编译版（dist/ 需先在本地交叉编译并上传）；有算力可换回 Dockerfile.rpc
       dockerfile: Dockerfile.rpc.prebuilt
+    # mysql 健康检查通过 ≠ 能接受连接，偶发 connection refused 时自动重启自愈
+    restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
@@ -75,6 +77,7 @@ services:
       context: .
       # 低配服务器用预编译版（dist/ 需先在本地交叉编译并上传）；有算力可换回 Dockerfile.web
       dockerfile: Dockerfile.web.prebuilt
+    restart: unless-stopped
     depends_on:
       rpc:
         condition: service_healthy
