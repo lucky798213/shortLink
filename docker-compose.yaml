@@ -1,6 +1,8 @@
 services:
   mysql:
     image: mysql:8.0
+    # 2G 内存小机型降载：关掉 performance_schema、缩小缓冲池（默认配置约占 450M+）
+    command: --performance_schema=OFF --innodb_buffer_pool_size=128M
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: short_url
@@ -44,7 +46,8 @@ services:
   rpc:
     build:
       context: .
-      dockerfile: Dockerfile.rpc
+      # 低配服务器用预编译版（dist/ 需先在本地交叉编译并上传）；有算力可换回 Dockerfile.rpc
+      dockerfile: Dockerfile.rpc.prebuilt
     depends_on:
       mysql:
         condition: service_healthy
@@ -70,7 +73,8 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile.web
+      # 低配服务器用预编译版（dist/ 需先在本地交叉编译并上传）；有算力可换回 Dockerfile.web
+      dockerfile: Dockerfile.web.prebuilt
     depends_on:
       rpc:
         condition: service_healthy

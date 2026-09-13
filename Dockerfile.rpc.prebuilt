@@ -1,0 +1,6 @@
+# 预编译版：配合本地交叉编译产物 dist/rpc-server 使用（GOOS=linux GOARCH=amd64）
+# 适用于低配服务器（如 2C2G），避免在服务器上执行 go build
+FROM alpine:3.21
+COPY dist/rpc-server /usr/local/bin/rpc-server
+COPY configs/rpc.yaml /etc/short_url/rpc.yaml
+CMD ["rpc-server"]
